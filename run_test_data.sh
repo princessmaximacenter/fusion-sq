@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-root_dir=~/PycharmProjects/structuralvariation/
-script_dir=${root_dir}fusion_sq/R/
+root_dir=~/fusion_sq/
+script_dir=${root_dir}R/
 utils_dir=${root_dir}utils/
 resources_dir=${root_dir}resources/
 
