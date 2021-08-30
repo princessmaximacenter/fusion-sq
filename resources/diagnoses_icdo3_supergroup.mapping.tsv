@@ -1,0 +1,13 @@
+primary_group	primary_group_label	supergroup	supergroup_label
+1	"Leukemias, myeloproliferative diseases, and myelodysplastic diseases"	1	hemato
+2	Lymphomas and reticuloendothelial neoplasms	1	hemato
+3	CNS and miscellaneous intracranial and intraspinal neoplasms	2	neuro
+4	Neuroblastoma and other peripheral nervous cell tumors	2	neuro
+5	Retinoblastoma	2	neuro
+6	Renal tumors	3	solid
+7	Hepatic tumors	3	solid
+8	Malignant bone tumors	3	solid
+9	Soft tissue and other extraosseous sarcomas	3	solid
+10	"Germ cell tumors, trophoblastic tumors, and neoplasms of gonads"	3	solid
+11	Other malignant epithelial neoplasms and malignant melanomas	3	solid
+12	Other and unspecified malignant neoplasms	3	solid

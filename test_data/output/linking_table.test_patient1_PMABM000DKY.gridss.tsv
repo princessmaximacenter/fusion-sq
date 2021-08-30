@@ -1,0 +1,4 @@
+fusion_id	gup_bp_name	gup_normal_af	gup_tumor_af	somatic	svtype	gdw_bp_name	gdw_normal_af	gdw_tumor_af	gup_coordinate	gdw_coordinate	gup_distance	gdw_distance	gup_location	gdw_location	fusion_name
+1	gridss29bb_5778o	0	0.211340206185567	NA	ITX	gridss29bb_5778h	0	0.179039301310044	chr2:42253424:-	chr15:88116891:-	7736	83845	intron	intron	EML4--NTRK3
+1	gridss29ff_5824o	0	0.232673267326733	NA	ITX	gridss29ff_5824h	0	0.206140350877193	chr2:42253416-42253418:+	chr15:88117316-88117318:+	7728	84270	intron	intron	EML4--NTRK3
+3	gridss49fb_3679o	0.365853658536585	0.44375	NA	DEL	gridss49fb_3679h	0.441176470588235	0.459119496855346	chr2:241911101:+	chr2:242093628:-	28465	1258	intron	intron	LINC01237--LINC01881

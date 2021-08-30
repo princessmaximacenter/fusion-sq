@@ -1,0 +1,1955 @@
+---
+title: "Fusion-sq - Main figures"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+  pdf_document: default
+date: '2021-07-28'
+editor_options: 
+  chunk_output_type: console
+---
+<style type="text/css">
+h1 { font-size: 24px; }
+h2 { font-size: 18px; }
+h3 { font-size: 14px; }
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F,
+                      results = "hold",
+                      warning = F,
+                      message = F,
+                      cache=T,
+                      opts.label="kill_prefix",
+                      fig.width=8, fig.height=5,
+                      dev="pdf") 
+
+```
+
+
+```{r include=F}
+library("svglite")
+
+## Settings
+#library(GenomicRanges)
+library(tidyverse, quietly=TRUE)
+library(stringr, quietly=TRUE)
+library(testthat, quietly=TRUE)
+library(stringdist, quietly=TRUE)
+library(VennDetail)
+library(ggplot2)
+library(RColorBrewer)
+library(DiagrammeR)
+library(ggrepel)
+
+#if("dplyr" %in% (.packages())){
+#  detach("package:dplyr", unload=TRUE) 
+#  detach("package:plyr", unload=TRUE) 
+#} 
+#library(plyr)
+library(dplyr)
+
+#color blind friendly palette
+cbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+#cbPalette <- c("#000000", "#E69F00", "#56B4E9",  "#D55E00", "#CC79A7","#009E73","#F0E442","#0072B2")
+
+wdir="~/PycharmProjects/wdl_pipeline/fusion_pilot/"
+output_dir = paste0(wdir,"fusion_sq_grape/")
+source(paste0(output_dir,"default.conf"))
+source(paste0(output_dir,"functions_general.R"))
+
+patient_metadata = read.table(patient_table,sep = "\t", header=T,na.strings = c("NA","N/A","","NULL"))
+patient_labels_lookup = patient_metadata[,c("patient_id","patient_label")]
+
+fusion_properties_validated=c("patient_id","fusion_name","tumor_af_mean","svtype","tool","svcnt_mean","gup_sf_breakpoint","gdw_sf_breakpoint","gup_distance_spread","gdw_distance_spread","tx_gup_transcript_id","tx_gup_involved_exon","tx_gup_exon_l2fc_mean","tx_gdw_transcript_id","tx_gdw_involved_exon","tx_gdw_exon_l2fc_mean")
+
+fusion_display_properties = c("fusion_name","patient_id","tumor_type_label","primary_group_shorthand_label","tumor_af_mean","normal_af_mean","svtype","tools","anno_has_tsg","anno_has_oncogene","anno_gup_pfam_kinase","anno_gdw_pfam_kinase")
+
+#source(paste0(wdir,"functions_markdown.R"))
+
+
+
+```
+
+
+Process cohort table, metadata, filtering
+```{r}
+
+cohort_report =  read.table(paste0(reports_dir,cohort_report_outfile),header=T,sep="\t")
+
+fusion_overview =  read.table(paste0(reports_dir,fusion_overview_anno_outfile),header=T,sep="\t")
+
+#for background figure validation vs FFPM
+fusion_summary = fusion_overview  %>% group_by(patient_id, clinically_validated, fusion_name, patient_fusion,tumor_type_label,domain_label,primary_group_shorthand_label) %>% 
+    summarize(ffpm_mean=mean(FFPM), ffpm_max=max(FFPM),
+              .groups="keep") %>% ungroup()
+
+#for breakpoint precision figure
+cohort_results = read.table(paste0(reports_dir,cohort_matching_results_outfile),sep = "\t", header=T)
+cohort_results = cohort_results %>% mutate(fusion_positive_patient = patient_id %in% filter(patient_metadata,fusion_status)$patient_id)
+
+cancer_db_vars = cohort_report %>% select_at(vars(contains("cosmic"),contains("chimerseq"),anno_mitelman)) %>% names()
+
+#count table per patient 
+patient_fusion_cnt_table = read.table(paste0(reports_dir,patient_oriented_table_outfile),header=T,sep="\t")
+patients_high_fusion_burden = patient_fusion_cnt_table[patient_fusion_cnt_table$somatic_low_af_hc_cnt>=7,c("patient_id")]
+
+## Load uq fusions 
+uq_fusions_df = read.table(paste0(reports_dir,uq_fusions_outfile),header=T,sep="\t")
+## for AF plots
+uq_fusions_df$tumor_normal_af = uq_fusions_df$tumor_af_mean - uq_fusions_df$normal_af_mean
+uq_fusions_df$svtype_label = factor(uq_fusions_df$svtype_label)
+uq_fusions_df=uq_fusions_df %>% rowwise() %>% mutate(cnl2fc= mean(c(gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean),na.rm=T))
+
+uq_fusions_hc = filter(uq_fusions_df,high_confidence==TRUE)
+uq_fusions_lc = filter(uq_fusions_df,high_confidence==FALSE)
+
+
+## Load uq gene pairs df
+uq_gene_pairs_df = read.table(paste0(reports_dir,uq_gene_pairs_outfile),header=T,sep="\t")
+## for AF plots
+uq_gene_pairs_df$tumor_normal_af = uq_gene_pairs_df$tumor_af - uq_gene_pairs_df$normal_af
+uq_gene_pairs_df$svtype_label = factor(uq_gene_pairs_df$svtype_label)
+
+uq_gene_pairs_hc = filter(uq_gene_pairs_df,high_confidence==TRUE)
+#Note: excl ambiguous from sv typing figures
+uq_gene_pairs_hc_ambiguous =  uq_gene_pairs_hc[uq_gene_pairs_hc$variant_type=="ambiguous",]
+uq_gene_pairs_hc =  uq_gene_pairs_hc[uq_gene_pairs_hc$variant_type!="ambiguous",]
+# set KIAA1549--BRAF svtype label to "DUP" instead of "complex" because of "DUP, INV" because that one patient also had l2fc and now it screws up my figures
+uq_gene_pairs_hc[uq_gene_pairs_hc$fusion_name=="KIAA1549--BRAF",c("svtype_label")]="DUP"
+
+uq_gene_pairs_lc = filter(uq_gene_pairs_df,high_confidence==FALSE)
+
+## selected fusions
+selected_fusion_candidates = read.table(paste0(reports_dir,fusions_cancer_related_outfile),header=T,sep="\t")
+
+fusion_selection_somatic = selected_fusion_candidates %>% filter(somatic_variant)
+fusion_selection_somatic_oncotsg = selected_fusion_candidates %>% filter(somatic_variant & (anno_has_oncogene | anno_has_tsg))
+fusion_selection_somatic_oncotsg_chimera = selected_fusion_candidates %>% filter(somatic_variant & (anno_has_oncogene | anno_has_tsg | anno_cancer_chimera))
+
+
+## Load other files
+
+wgs_tool_present_path = paste0(wdir,"cohort.v4.wgs_tool.present.tsv")
+wgs_tool_present_df = read.table(wgs_tool_present_path,header=T,sep="\t")
+
+
+gene_expression_analysis = read.table(paste0(reports_dir,gene_expression_zcore_outfile),sep="\t",header = T)
+
+cohort_cna_target_regions = read.table(paste0(cna_reports_dir,cohort_cna_target_regions_outfile),header=T,sep="\t")
+
+activating_lst = c("PMCID910AAJ_PAX3--WWTR1", "PMCID771AAK_LINC01344--TERT","PMCID057AAK_DCAF6--HMGA2","PMCID453AAA_MED14--HOXA9","PMCID203AAL_QKI--MAP3K4","PMCID912AAJ_ERBB4--LINC01807","PMCID288AAK_BIRC3--ARHGAP42",  "PMCID288AAK_PGR--BIRC3","PMCID308AAA_SYMPK--MEF2B","PMCID057AAK_CCT3--MEF2D" )
+
+disruptive_lst = c("PMCID201AAA_NF1--RAB11FIP4","PMCID255AAF_TP53--DHX8","PMCID332AAA_TP53--DAAM2","PMCID958AAE_TP53--LINC01723","PMCID800AAN_NCOR1--ZSWIM7","PMCID852AAN_ETV6--IGL-@-ext","PMCID308AAA_RB1--DGKB","PMCID389AAA_ATRX--LINC01280","PMCID172AAM_MTAP--CDKN2B-AS1","PMCID190AAK_MTAP--CDKN2B-AS1","PMCID003AAM_TK1--BRCA1","PMCID426AAM_ZBTB20--LSAMP")
+
+conflicting_lst = c("PMCID118AAO_FBXW7--DCLK2","PMCID772AAJ_IGSF3--AKT3", "PMCID772AAJ_NFIA--LPP")
+
+activating_lst=c(activating_lst,conflicting_lst)
+
+
+plot_fpkm_log2 = function(gene_expression_analysis,highlight_gene,highlight_patients,gene_name,grouping="primary_group_shorthand_label") {
+  expression_subset = filter(gene_expression_analysis,ensembl_id == highlight_gene)
+
+  p = ggplot(expression_subset,aes(x=!! sym(grouping),y=fpkm_log)) + geom_boxplot() +
+    geom_point(data=filter(expression_subset, patient_id %in% highlight_patients),fill="red",size=3,shape=21)  +  theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=1, hjust=1)) + xlab("") + ylab("gene expression FPKM (log2)") +
+    ggtitle(paste0(gene_name," expression (FPKM log2)"))
+  
+  y_min=min(expression_subset$fpkm_log)*1.1
+  p=p+geom_tile(aes(x=primary_group_shorthand_label,y=y_min,fill=primary_group_shorthand_label),stat = "identity",height=0.08,color="black",show.legend = F)  + scale_fill_manual(values=prigroup_colors$color) #+ coord_cartesian(ylim=c(-0.3,20),clip="off")
+
+  p
+  return(p)
+}
+plot_zscore_dist_domain = function(gene_expression_analysis,highlight_gene,highlight_patients,gene_name){
+ p = ggplot(filter(gene_expression_analysis,ensembl_id==highlight_gene),aes(x=fpkm_zscore_domain,fill=domain_label)) +
+   geom_density(alpha=0.5) + geom_vline(data=filter(gene_expression_analysis,ensembl_id==highlight_gene & patient_id %in% highlight_patients),
+                                        aes(xintercept=fpkm_zscore_domain),show.legend = F) + facet_wrap(~domain_label) + 
+    ggtitle(paste0(gene_name," z-score distribution"))
+ return(p)
+}
+
+```
+
+```{r}
+getPalette = colorRampPalette(brewer.pal(10, "Spectral"))
+
+prigroup_colors = unique(patient_metadata$primary_group_shorthand_label)
+prigroup_colors = data.frame(prigroup_colors)
+colnames(prigroup_colors) = c("primary_group_shorthand_label")
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),c("primary_group_shorthand_label")])
+prigroup_colors$primary_group_shorthand_label = prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+prigroup_colors$color = getPalette(11)
+
+#prigroup_colors[!is.na(prigroup_colors$primary_group_shorthand_label),]
+```
+
+
+
+# Main figures
+Cohort last updated: 2020-10-29 => 2021-04-02 patient exclusions => 2021-07-26 diagnoses updates and patient exclusions
+
+## Diagnoses
+
+```{r}
+primary_group_cnt = patient_metadata %>% group_by(fusion_status,primary_group_shorthand_label) %>% summarize(patient_cnt = n())
+primary_group_cnt$primary_group_shorthand_label = factor(primary_group_cnt$primary_group_shorthand_label)
+
+primary_group_cnt = primary_group_cnt  %>% group_by(primary_group_shorthand_label) %>% arrange(primary_group_shorthand_label)
+primary_group_cnt$fusion_status = factor(primary_group_cnt$fusion_status)
+
+  ggplot(primary_group_cnt,aes(group=primary_group_shorthand_label)) +
+    geom_bar(aes(x=1,fill =primary_group_shorthand_label ,y=patient_cnt),stat="identity",color="white",width=2,size=0.2) +
+    scale_fill_manual(values = prigroup_colors$color,drop = FALSE) +
+    geom_bar(aes(x=1.95,alpha=fusion_status,y=patient_cnt),stat="identity",fill="black",width=0.45,show.legend=F) + 
+    scale_alpha_discrete(range = c(0, 0.3))   + 
+    coord_polar("y") + xlim(c(-1, 2.25))  + theme_void() + labs(fill="Cancer type group")
+
+```
+
+```{r include=F}
+## Alternative version
+  ggplot(primary_group_cnt,aes(group=primary_group_shorthand_label)) +
+    geom_bar(aes(x=1,fill =primary_group_shorthand_label ,y=patient_cnt),stat="identity",color="black",width=2,size=0.1) +
+    scale_fill_manual(values = prigroup_colors$color,drop = FALSE) +
+    geom_bar(aes(x=1.87,alpha=fusion_status,y=patient_cnt),stat="identity",fill="black",width=0.25,show.legend=F) +
+     coord_polar("y") + xlim(c(-1, 2.25)) +  scale_alpha_discrete(range = c(0, 0.3)) + theme_void() + labs(fill="Cancer type group")
+
+```
+  
+For fun: Adding the additional patients with TSFs:
+```{r}
+  
+primary_group_cnt = patient_metadata %>% mutate(fusion_status = (fusion_status | patient_id %in% filter(cohort_report,somatic_variant)$patient_id)) %>% group_by(fusion_status,primary_group_shorthand_label) %>% summarize(patient_cnt = n())
+  
+primary_group_cnt$fusion_status = factor(primary_group_cnt$fusion_status)
+
+ggplot(primary_group_cnt,aes(group=primary_group_shorthand_label)) +
+    geom_bar(aes(x=1,fill =primary_group_shorthand_label ,y=patient_cnt),stat="identity",color="white",width=2,size=0.2) +
+    scale_fill_manual(values = prigroup_colors$color,drop = FALSE) +
+    geom_bar(aes(x=1.95,alpha=fusion_status,y=patient_cnt),stat="identity",fill="black",width=0.45,show.legend=F) + 
+    scale_alpha_discrete(range = c(0, 0.3))   + 
+    coord_polar("y") + xlim(c(-1, 2.25))  + theme_void() + labs(fill="Cancer type group")
+
+```
+
+previous plots with validation and discovery separated (hidden)
+```{r include=F}
+
+pie = ggplot(primary_group_cnt, aes(x="", y=patient_cnt, fill=primary_group_shorthand_label)) + geom_bar(stat="identity",color="black") + facet_wrap(~fusion_status)  + scale_fill_manual(values = getPalette(12),drop = FALSE)
+pie = pie + coord_polar("y", start=0) 
+pie = pie + labs(x = NULL, y = NULL, fill = NULL, title = "Diagnoses ICD-O-3 primary groups")
+pie = pie + theme_classic() + theme(axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank())
+pie 
+
+
+
+pie = ggplot(filter(primary_group_cnt,fusion_status==TRUE), aes(x="", y=patient_cnt, fill=primary_group_shorthand_label)) + geom_bar(stat="identity",color="black") + scale_fill_manual(values = getPalette(12),drop=FALSE)
+pie = pie + coord_polar("y", start=0) 
+pie = pie + labs(x = NULL, y = NULL, fill = NULL, title = "Validation - diagnoses ICD-O-3 primary groups")
+pie = pie + theme_classic() + theme(axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank())
+pie 
+
+pie = ggplot(filter(primary_group_cnt,fusion_status==FALSE), aes(x="", y=patient_cnt, fill=primary_group_shorthand_label)) + geom_bar(stat="identity",color="black") + scale_fill_manual(values = getPalette(12),drop = FALSE)
+pie = pie + coord_polar("y", start=0) 
+pie = pie + labs(x = NULL, y = NULL, fill = NULL, title = "Discovery - diagnoses ICD-O-3 primary groups")
+pie = pie + theme_classic() + theme(axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank())
+pie 
+
+```
+
+## Validation figure comparing Fusion-sq to FFPM >0.1
+
+Key message: clinically relevant fusions (color) can be detected also when lowly expressed (dots below the line). Also, filtering on FFPM > 0.1 is not a good strategy for identification of drivers, since then other fusion predictions remain as well (grey jitter points above the line). In addition, specificity of our approach: only few additional high-confidence tumor-specific fusions are identified (black dots)
+
+Note:Reciprocal fusions removed for display purposes. With jittered points for all predictions.
+Note: "SS18--SSX1" == "AC091021.1--SSX1"
+Note: IGH-@-ext--MYC reciprocal only for PMCID340AAO
+
+
+```{r}
+#remove or merge the reciprocal
+show_fusions = c("ASPSCR1--TFE3", "EWSR1--FLI1", "KIAA1549--BRAF", "MYC--IGH-@-ext", "EML4--NTRK3", "ETV6--RUNX1", "FGFR1--TACC1", "FUS--CREB3L2", "IGH-@-ext--MYC", "LMNA--NTRK1",  "NUP98--NSD1", "PAX3--WWTR1", "PAX3--FOXO1", "PAX7--FOXO1", "EWSR1--CREB1","SS18--SSX1","AC091021.1--SSX1")
+
+not_showed = cohort_report %>% filter((clinically_validated | clinically_validated_reciprocal)& !fusion_name %in% show_fusions) %>% 
+  filter(!patient_id %in% filter(cohort_report,fusion_name %in% show_fusions)$patient_id)
+
+if(nrow(not_showed)>0){
+  print("Note: no fusions from these patients shown! Adjust the show fusions ")
+  print(not_showed %>% select(patient_id,primary_group_shorthand_label,fusion_name))
+}
+
+#either specific location or at least not a better one
+display_fusions = cohort_report %>% filter((clinically_validated|clinically_validated_reciprocal)  & fusion_name %in% show_fusions) %>%   filter((gup_location=="intron"&gdw_location=="intron") | !patient_fusion %in% filter(cohort_report,gup_location=="intron"&gdw_location=="intron")$patient_fusion)  %>%   select(patient_id,ffpm_max,ffpm_mean,fusion_name,tumor_type_label,primary_group_shorthand_label,domain_label,gup_distance_mean,gdw_distance_mean) %>% unique() 
+
+
+display_fusions[display_fusions$patient_id == "PMCID340AAO", c("fusion_name")]="IGH-@-ext--MYC" ## but it is the reciprocal
+display_fusions[display_fusions$fusion_name == "AC091021.1--SSX1", c("fusion_name")]="SS18--SSX1"
+
+if(nrow(filter(patient_metadata,fusion_status & !patient_id %in% display_fusions$patient_id))>0) {
+  print("WARNING patients missed from display fusion")
+}
+
+#fusions of unknown significance or additionally detected
+fusions_unkn_sign = cohort_report %>% filter(somatic_variant & precise_confident & patient_id %in% display_fusions$patient_id) %>% filter(!patient_fusion %in% filter(fusion_overview,clinically_validated|clinically_validated_reciprocal)$patient_fusion)
+
+## Snippets for ordering patients
+
+display_fusions$patient_id = factor(display_fusions$patient_id)
+display_fusions$patient_id = factor(display_fusions$patient_id, levels =
+unique(display_fusions[order(display_fusions$primary_group_shorthand_label,display_fusions$fusion_name,-display_fusions$ffpm_max),]$patient_id))
+
+primary_group_shorthand_label_ordered = display_fusions[order(display_fusions$primary_group_shorthand_label,display_fusions$fusion_name,-display_fusions$ffpm_max),]$primary_group_shorthand_label
+
+fusion_summary_display =  fusion_summary %>% filter(!clinically_validated & patient_id %in% display_fusions$patient_id)
+fusion_summary_display$patient_id = factor(fusion_summary_display$patient_id, levels =
+unique(display_fusions[order(display_fusions$primary_group_shorthand_label,display_fusions$fusion_name,-display_fusions$ffpm_max),]$patient_id))
+
+fusions_unkn_sign$patient_id = factor(fusions_unkn_sign$patient_id, levels=unique(display_fusions[order(display_fusions$primary_group_shorthand_label,display_fusions$fusion_name,-display_fusions$ffpm_max),]$patient_id))
+
+## endof ordering
+
+## Start plots 
+
+# Grouped by cancer type 
+ggplot(fusion_summary_display, aes(x=primary_group_shorthand_label,y=ffpm_max)) + geom_jitter(color="grey", size=1) + geom_point(data=display_fusions,aes(y=ffpm_max,x=primary_group_shorthand_label,fill=fusion_name),size=3,shape=21) + geom_jitter(data=fusions_unkn_sign) + geom_hline(yintercept = 0.1,color="red") + scale_y_continuous(trans = 'log10') + theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=0.9, hjust=1)) + xlab("") + ylab("FFPM (max)")
+
+
+##  bar with height1 to annotate cancer type
+#plot dots on top of each other to get the border but dont use the fill
+p = ggplot(fusion_summary_display, aes(x=patient_id,y=ffpm_max)) + geom_jitter(color="grey", size=1) + geom_point(data=display_fusions,aes(y=ffpm_max,x=patient_id),size=3,fill="black") +
+  geom_point(data=display_fusions,aes(y=ffpm_max,x=patient_id,color=fusion_name),size=2)+ geom_hline(yintercept = 0.1,color="red") + geom_jitter(data=fusions_unkn_sign) +  geom_tile(data=display_fusions,aes(x=patient_id,y=0.01,fill=primary_group_shorthand_label),stat = "identity",height=0.07) + scale_y_continuous(trans = 'log10') + 
+theme_bw() + theme(axis.text.x = element_text(angle = 90,size = 6,vjust=0.9, hjust=1)) + xlab("Patients") + ylab("FFPM (max)") + scale_fill_manual(values = filter(prigroup_colors,primary_group_shorthand_label %in% display_fusions$primary_group_shorthand_label)$color) #+ theme(legend.position = "bottom")
+
+p
+
+p + theme(axis.text.x = element_blank()) + coord_cartesian(clip="off")
+
+```
+Previous simpler versions (hidden)
+```{r include=F} 
+#per patient 
+ggplot(fusion_summary_display, aes(x=patient_id,y=ffpm_max)) + geom_jitter(color="grey", size=1) + geom_point(data=display_fusions,aes(y=ffpm_max,x=patient_id,fill=fusion_name),size=3,shape=21) +
+  geom_jitter(data=fusions_unkn_sign) + geom_hline(yintercept = 0.1,color="red") + scale_y_continuous(trans = 'log10') + theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=0.9, hjust=1)) + xlab("") + ylab("FFPM (max)")
+
+ggplot(fusion_summary_display, aes(x=patient_id,y=ffpm_max)) + geom_jitter(color="grey", size=1) + geom_point(data=display_fusions,aes(y=ffpm_max,x=patient_id,fill=fusion_name),size=3,shape=21) + geom_hline(yintercept = 0.1,color="red") + geom_jitter(data=fusions_unkn_sign) + scale_y_continuous(trans = 'log10') + scale_x_discrete(labels= primary_group_shorthand_label_ordered) + theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=0.9, hjust=1)) + xlab("Patients") + ylab("FFPM (max)")
+
+#per patient coloured by cancer type
+ggplot(fusion_summary_display, aes(x=patient_id,y=ffpm_max)) + geom_jitter(color="grey", size=1) + geom_point(data=display_fusions,aes(y=ffpm_max,x=patient_id,fill=primary_group_shorthand_label),size=3,shape=21) + geom_jitter(data=fusions_unkn_sign) + geom_hline(yintercept = 0.1,color="red") + scale_y_continuous(trans = 'log10') + theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=0.9, hjust=1)) + xlab("") + ylab("FFPM (max)") + scale_fill_manual(values = filter(prigroup_colors,primary_group_shorthand_label %in% display_fusions$primary_group_shorthand_label)$color)
+
+```
+
+
+
+## Validation: RNA-DNA distance and tool concordance
+
+Fusions and SVs can be matched at a large variety of distances between the RNA and DNA breakpoints due to using intron-exon gene structure (upstream and downstream gene respectively on the x and y axis). In comparison, even a large 10 kb distance would not be sufficient in all cases (red lines). In addition, all clinically relevant fusions are detected by at all three tools at nucleotide resolution at the precise intervals (adj intron/flank/sj) except for ASPSCR1--TFE3 which requires composite for Manta and shows slight differences between the tools.
+
+See other markdown for numbers on precision.
+
+=> TODO: update with overlaps and bp distances. Figure no longer correct
+
+2021-05-26 validation set = clin rel fusion in right orientation unless no other is available
+need per tool the DNA-RNA distance of the high conf selected SV 
+
+```{r } 
+
+validation_set = uq_fusions_df %>% filter(precise_confident & 
+  ( clinically_validated | (clinically_validated_reciprocal & !patient_id %in%
+                              filter(cohort_report,precise_confident&clinically_validated)$patient_id)))
+
+missing_fusion_positive_patient = patient_metadata %>% filter(fusion_status & !patient_id %in% validation_set$patient_id)
+to_add = cohort_report %>% filter(clinically_validated & patient_id %in% missing_fusion_positive_patient$patient_id)
+
+#select patient_fusion_sv ids for cohort report 
+patient_fusion_sv_lst = c(validation_set$patient_fusion_sv,to_add$patient_fusion_sv)
+
+#cohort results map with patient fusion sv 
+filtered_validation_set = cohort_results %>% 
+    filter(patient_fusion_sv %in% patient_fusion_sv_lst ) 
+
+filtered_validation_set = filtered_validation_set%>% 
+    group_by(patient_id,fusion_name,patient_fusion_sv,gup_location,gdw_location,tool) %>%
+    summarize(gup_distance_spread=(max(gup_distance)-min(gup_distance)), 
+              gdw_distance_spread=(max(gdw_distance)-min(gdw_distance)),
+              gup_distance_mean = mean(gup_distance,na.rm=T), 
+              gdw_distance_mean = mean(gdw_distance,na.rm=T))
+
+## TODO check if I can get the TFE3 fusion to show and if only once per patinet
+filtered_validation_set[filtered_validation_set$patient_id == "PMCID340AAO", c("fusion_name")]="IGH-@-ext--MYC" ## but it is the reciprocal
+filtered_validation_set[filtered_validation_set$fusion_name == "AC091021.1--SSX1", c("fusion_name")]="SS18--SSX1"
+
+filtered_validation_set$tool = factor(filtered_validation_set$tool)
+filtered_validation_set$fusion_name = factor(filtered_validation_set$fusion_name)
+
+
+
+fusion_labels_coordinates = cohort_report %>% filter(patient_fusion_sv %in% filtered_validation_set$patient_fusion_sv) %>% group_by(patient_fusion, fusion_name,patient_id ) %>% summarize(gup_distance_mean=mean(gup_distance_mean,na.rm = T),
+                                                                                                                                                                                   gdw_distance_mean=mean(gdw_distance_mean,na.rm = T)) 
+
+fusion_labels_coordinates[fusion_labels_coordinates$patient_id == "PMCID340AAO", c("fusion_name")]="IGH-@-ext--MYC" ## but it is the reciprocal
+fusion_labels_coordinates[fusion_labels_coordinates$fusion_name == "AC091021.1--SSX1", c("fusion_name")]="SS18--SSX1"
+
+
+```
+
+```{r}
+
+ggplot(filtered_validation_set, aes(y=gup_distance_mean,x=gdw_distance_mean,color=fusion_name)) +  
+geom_jitter(aes(shape=tool),alpha=.6, width = 100,height=100,size=3) + geom_text(data=filter(fusion_labels_coordinates,grepl("TFE",patient_fusion)|gup_distance_mean>10000|gdw_distance_mean>10000),aes(label=fusion_name),size=3,check_overlap=F,color="black",nudge_x = 0,nudge_y=500) + 
+geom_hline(yintercept = 10000,color="red") +  geom_vline(xintercept = 10000,color="red")+ xlab("3' distance in bp (mean)") + ylab("5' distance in bp (mean)") + theme_bw()
+
+```
+
+```{r}
+## ETV6 RUNX example for presentation
+ggplot(filtered_validation_set %>% filter(grepl("ETV6",fusion_name)), aes(y=gup_distance_mean,x=gdw_distance_mean,color=fusion_name,shape=tool)) +  
+geom_jitter(alpha=.6, width = 250,height=100,size=3) + geom_text(data=filter(filtered_validation_set,grepl("ETV6",fusion_name)&tool=="delly"),aes(label=patient_id),size=3,check_overlap=T,color="black",nudge_x = 500,nudge_y=500) +  xlab("3' distance (mean)") + ylab("5' distance (mean)") + ggtitle("ETV6--RUNX1 distances RNA-DNA")
+
+## also check the exons involved
+cohort_report %>% filter(grepl("ETV6--RUNX1",fusion_name)) %>% select(gup_sf_breakpoint,gdw_sf_breakpoint)
+```
+
+
+## Tumor-specific SVs per patient 
+
+Key message: few fusion predictions per patient with WGS support. patient-specific 
+
+```{r}
+patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label, levels=unique(patient_fusion_cnt_table$primary_group_shorthand_label[order(-patient_fusion_cnt_table$validated_somatic_cnt)]))
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id)
+
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id, levels = patient_fusion_cnt_table$patient_id[order(patient_fusion_cnt_table$primary_group_shorthand_label,patient_fusion_cnt_table$validated_somatic_cnt,patient_fusion_cnt_table$clinical_cnt)])
+
+patient_fusion_cnt_long = tidyr::gather(patient_fusion_cnt_table[,c("patient_id","predicted_cnt","predicted_ffpm_cnt","validated_somatic_cnt","primary_group_shorthand_label")], key = cnt_type, value = cnt, -patient_id,-primary_group_shorthand_label,-primary_group_shorthand_label)
+
+patient_fusion_cnt_long$primary_group_shorthand_label = factor(patient_fusion_cnt_long$primary_group_shorthand_label)
+
+#validated set with black bar
+#note that the ordering is different of prigroup_colors and should be adjusted accordingly 
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_long$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+```
+
+
+```{r}
+#with white
+ggplot(filter(patient_fusion_cnt_long,cnt_type=="validated_somatic_cnt")) +
+geom_point(aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +  geom_tile(aes(x=patient_id,y=-1.5),fill="white",stat = "identity",height=0.35,color="black",show.legend = F) +  geom_tile(data=filter(patient_fusion_cnt_long,cnt>0&cnt_type=="validated_somatic_cnt"),aes(x=patient_id,y=-1.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=0.5,show.legend = F) + geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1.5),fill="black",stat = "identity",height=0.35,alpha=0.35) + scale_y_continuous(breaks = seq(0, 20, 2)) +
+scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + theme(axis.ticks.x=element_blank()) + labs(x="", y="#fusions",fill="Cancer type group")  + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.3,20),clip="off")
+
+#without white
+ggplot(filter(patient_fusion_cnt_long,cnt_type=="validated_somatic_cnt")) +
+geom_point(aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +  geom_tile(aes(x=patient_id,y=-1.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=0.5,show.legend = F) + geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + scale_y_continuous(breaks = seq(0, 20, 2)) +
+scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + theme(axis.ticks.x=element_blank()) + labs(x="", y="#fusions",fill="Cancer type group")  + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.3,20),clip="off")
+
+
+ggplot(filter(patient_fusion_cnt_long,cnt_type=="validated_somatic_cnt")) +
+geom_bar(aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),stat="identity") +  geom_tile(aes(x=patient_id,y=-1.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=0.5,show.legend = F) + geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + scale_y_continuous(breaks = seq(0, 20, 2)) +
+scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + theme(axis.ticks.x=element_blank()) + labs(x="", y="#fusions",fill="Cancer type group")  + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.3,20),clip="off")
+
+```
+
+Tumor-specific fusions in discovery set only
+```{r}
+
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id, levels = patient_fusion_cnt_table$patient_id[order(patient_fusion_cnt_table$primary_group_shorthand_label,patient_fusion_cnt_table$validated_somatic_cnt,patient_fusion_cnt_table$predicted_cnt)])
+
+
+patient_fusion_cnt_long = tidyr::gather(patient_fusion_cnt_table[,c("patient_id","predicted_cnt","predicted_ffpm_cnt","validated_somatic_cnt","primary_group_shorthand_label")], key = cnt_type, value = cnt, -patient_id,-primary_group_shorthand_label,-primary_group_shorthand_label)
+
+patient_fusion_cnt_long$primary_group_shorthand_label = factor(patient_fusion_cnt_long$primary_group_shorthand_label)
+
+#validated set with black bar
+#note that the ordering is different of prigroup_colors and should be adjusted accordingly 
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_long$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+patient_fusion_cnt_long = patient_fusion_cnt_long %>% filter(!patient_id %in% filter(patient_metadata,fusion_status)$patient_id)
+
+patient_fusion_cnt_long$cnt_type_label = factor(patient_fusion_cnt_long$cnt_type, labels = c("Predicted","FFPM>0.1","Tumor specific SV"))
+
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type!="predicted_ffpm_cnt",]) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="predicted_cnt"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + 
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="validated_somatic_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) + scale_x_discrete(labels=NULL) + facet_wrap(~cnt_type_label,scales = "free_y",nrow=2) + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+ggplot(patient_fusion_cnt_long) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="predicted_cnt"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + 
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="predicted_ffpm_cnt"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + 
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="validated_somatic_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) + scale_x_discrete(labels=NULL) + facet_wrap(~cnt_type_label,scales = "free_y",nrow=3) + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+
+## Fusions per patient and genomic instability
+
+```{r}
+
+patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label)
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_table$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+```
+
+Percentiles for gene fusion burden
+```{r}
+perc_somatic = quantile(patient_fusion_cnt_table$somatic_hc_cnt, c(.5,.9,.95,.99)) 
+print("somatic_hc cnt")
+perc_somatic
+perc_somatic_low_af = quantile(patient_fusion_cnt_table$somatic_low_af_hc_cnt, c(.5,.9,.95,.99)) 
+print("Used in the paper: somatic_low_af_hc cnt ,")
+perc_somatic_low_af
+perc_any_somatic_low_af = quantile(patient_fusion_cnt_table$any_somatic_low_af_cnt, c(.5,.9,.95,.99)) 
+print("any somatic_low_af cnt (includes low confidence),")
+perc_any_somatic_low_af
+```
+
+Fraction of genome altered distribution and median in red 
+
+
+```{r}
+ggplot(patient_fusion_cnt_table, aes(x=fga)) + geom_density() + geom_vline(xintercept = median(patient_fusion_cnt_table$fga),color="red") + 
+  ggtitle(paste0("FGA distribution, med. ",round(median(patient_fusion_cnt_table$fga),2)))
+
+```
+
+Plots relating FGA, somatic/low-af fusion burden (high confidence) and CNA
+
+```{r}
+p = ggplot(patient_fusion_cnt_table, aes(x=fga,y=max_cna,fill=primary_group_shorthand_label,size=somatic_low_af_hc_cnt)) +
+  geom_point(shape=21) + scale_fill_manual(values=prigroup_colors$color) + ggtitle("FGA vs max CNA (genome) and somatic/low-AF hcF")
+p
+p+ facet_wrap(~fusion_positive_patient) 
+
+# max cna of gene fusion
+p = ggplot(patient_fusion_cnt_table, aes(x=fga,y=max_cna_fusion,fill=primary_group_shorthand_label,size=somatic_low_af_hc_cnt)) +
+  geom_point(shape=21) + scale_fill_manual(values=prigroup_colors$color) + ggtitle("FGA vs max CNA (fusion) and somatic/low-AF hcF")
+p
+p+ facet_wrap(~fusion_positive_patient) 
+```
+
+
+```{r}
+p = ggplot(patient_fusion_cnt_table, aes(x=fga,y=somatic_low_af_hc_cnt,size=max_cna_fusion)) + 
+  #geom_vline(aes(xintercept = median(patient_fusion_cnt_table$fga),color="FGA median")) +
+  geom_hline(aes(yintercept = perc_somatic_low_af["95%"], color="95% percentile")) + 
+  geom_point(data=filter(patient_fusion_cnt_table,somatic_low_af_hc_cnt==0), color="grey",alpha=0.3) + 
+  geom_point(data=filter(patient_fusion_cnt_table,somatic_low_af_hc_cnt>0), shape=21, aes(fill=primary_group_shorthand_label),alpha=0.85) + 
+  scale_fill_manual(values=prigroup_colors$color)  +   scale_color_manual(values=c("red","red"))  + 
+  labs(x="Fraction of genome altered", y="#tumor-specific/low-AF high confidence fusions",fill="Cancer type primary group",color="",size="CN l2fc of gene fusions (max)") +
+  theme_bw() +
+  ggtitle("Relating gene fusion burden and FGA")
+
+p
+p+ facet_wrap(~fusion_positive_patient) 
+
+```
+
+```{r}
+
+p = ggplot(patient_fusion_cnt_table, aes(x=fga,y=somatic_hc_cnt,size=max_cna_fusion)) + 
+  geom_vline(xintercept = median(patient_fusion_cnt_table$fga),color="red") +
+  geom_hline(yintercept = perc_somatic["95%"], color="red") + 
+  geom_point(data=filter(patient_fusion_cnt_table,somatic_hc_cnt==0), color="grey",alpha=0.3) + 
+  geom_point(data=filter(patient_fusion_cnt_table,somatic_hc_cnt>0), shape=21, aes(fill=primary_group_shorthand_label),alpha=0.85) + 
+  scale_fill_manual(values=prigroup_colors$color)  + 
+  ggtitle("FGA vs somatic hcFs count, size max CNA fusion, hline 95% fusion cnt") +
+  theme_bw()
+p
+p+ facet_wrap(~fusion_positive_patient) 
+
+```
+
+
+```{r include=F}
+#including not hc
+ggplot(patient_fusion_cnt_table, aes(x=fga,y=any_somatic_low_af_cnt,fill=primary_group_shorthand_label,size=max_cna_fusion)) + geom_point(shape=21) + scale_fill_manual(values=prigroup_colors$color) + facet_wrap(~fusion_positive_patient) +
+    ggtitle("FGA vs all validated somatic/low-AF fusions, size max CNA fusion, hlines percentiles") +
+  geom_vline(xintercept = median(patient_fusion_cnt_table$fga),color="red") + 
+  geom_hline(yintercept = perc_any_somatic_low_af["95%"], color="red",)
+
+```
+
+### per patient find patterns fga/cna/fusion burden
+```{r}
+patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label, levels=unique(patient_fusion_cnt_table$primary_group_shorthand_label[order(-patient_fusion_cnt_table$precise_confident_cnt)]))
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id)
+
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id, levels = patient_fusion_cnt_table$patient_id[order(patient_fusion_cnt_table$primary_group_shorthand_label,patient_fusion_cnt_table$precise_confident_cnt,patient_fusion_cnt_table$clinical_cnt)])
+
+patient_fusion_cnt_long = tidyr::gather(patient_fusion_cnt_table[,c("patient_id","predicted_cnt","predicted_ffpm_cnt","validated_cnt","precise_confident_cnt","not_precise_confident_cnt","somatic_hc_cnt","germline_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt","somatic_not_hc_cnt","germline_not_hc_cnt","low_af_not_hc_cnt","ambiguous_not_hc_cnt","fga","max_cna","min_cna","primary_group_shorthand_label")], key = cnt_type, value = cnt, -patient_id,-primary_group_shorthand_label,-primary_group_shorthand_label)
+
+patient_fusion_cnt_long$primary_group_shorthand_label = factor(patient_fusion_cnt_long$primary_group_shorthand_label)
+
+#note that the ordering is different of prigroup_colors and should be adjusted accordingly 
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_long$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+#patient_fusion_cnt_long$cnt_type_label = factor(patient_fusion_cnt_long$cnt_type, labels = c("Predicted","FFPM>0.1","Tumor specific SV","FGA","max CNA"))
+
+```
+
+```{r include=F}
+
+ggplot(patient_fusion_cnt_long) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="predicted_ffpm_cnt"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + 
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="not_precise_confident_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +
+  geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="precise_confident_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="fga"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="max_cna"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") +
+scale_x_discrete(labels=NULL) + facet_wrap(~cnt_type,scales = "free_y",nrow=3) + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+
+```{r}
+
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("precise_confident_cnt","fga","max_cna"),]) +
+  geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="precise_confident_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="fga"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="max_cna"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") +
+scale_x_discrete(labels=NULL) + facet_wrap(~cnt_type,scales = "free_y",nrow=4,drop = T) + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+```{r}
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("precise_confident_cnt","validated_cnt","fga","max_cna","min_cna"),]) +
+  geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="precise_confident_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +
+  geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="validated_cnt"),aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +
+geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="fga"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") + geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="max_cna"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") +
+  geom_point(data=filter(patient_fusion_cnt_long,cnt_type=="min_cna"),aes(x=patient_id,y=cnt),size=1, color="darkgrey") +
+scale_x_discrete(labels=NULL) + facet_wrap(~cnt_type,scales = "free_y",nrow=5,drop = T) + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+```{r}
+
+
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("somatic_hc_cnt","germline_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt"),], aes(x=patient_id)) +  geom_bar(aes(y=cnt,fill=cnt_type),stat="identity") + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") + scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+```{r}
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("somatic_hc_cnt","germline_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt",                                                                    "somatic_not_hc_cnt","germline_not_hc_cnt","low_af_not_hc_cnt","ambiguous_not_hc_cnt"),], aes(x=patient_id)) +  geom_bar(aes(y=cnt,fill=cnt_type),stat="identity") + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") #+ scale_fill_manual(values=prigroup_colors$color)
+
+## TODO: ordering still not right I want germline atthe bottom
+## TODO: add the other levels
+
+#patient_fusion_cnt_long$cnt_type = factor(patient_fusion_cnt_long$cnt_type,levels=c("germline_hc_cnt","somatic_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt"))
+
+#patient_fusion_cnt_long=patient_fusion_cnt_long[order(patient_fusion_cnt_long$cnt_type),]
+
+
+ggplot(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("somatic_not_hc_cnt","germline_not_hc_cnt","low_af_not_hc_cnt","ambiguous_not_hc_cnt"),], aes(x=patient_id)) +  geom_bar(aes(y=cnt,fill=cnt_type),stat="identity") + theme_bw() + theme(legend.position = "bottom") + xlab("") + ylab("#fusions") #+ scale_fill_manual(values=prigroup_colors$color)
+
+```
+
+
+
+### Combine predicted and high conf in 1 figure
+```{r}
+
+patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label, levels=unique(patient_fusion_cnt_table$primary_group_shorthand_label[order(-patient_fusion_cnt_table$precise_confident_cnt)]))
+
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id, levels = patient_fusion_cnt_table$patient_id[order(patient_fusion_cnt_table$primary_group_shorthand_label,patient_fusion_cnt_table$precise_confident_cnt,patient_fusion_cnt_table$clinical_cnt)])
+
+patient_fusion_cnt_long = tidyr::gather(patient_fusion_cnt_table[,c("patient_id","predicted_cnt","predicted_ffpm_cnt","validated_cnt","precise_confident_cnt","not_precise_confident_cnt","somatic_hc_cnt","germline_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt","somatic_not_hc_cnt","germline_not_hc_cnt","low_af_not_hc_cnt","ambiguous_not_hc_cnt","fga","max_cna","min_cna","primary_group_shorthand_label")], key = cnt_type, value = cnt, -patient_id,-primary_group_shorthand_label,-primary_group_shorthand_label)
+
+patient_fusion_cnt_long$primary_group_shorthand_label = factor(patient_fusion_cnt_long$primary_group_shorthand_label)
+
+#adjust ordering of prigroup_colors and should be adjusted accordingly 
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_long$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+
+## check ambiguous also empty because should be resolved from uq fusions 
+nrow(uq_fusions_hc) == sum(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="precise_confident_cnt",c("cnt")])
+
+#annotation bar with colours, without white
+ggplot(patient_fusion_cnt_long, aes(x=patient_id)) +
+    geom_bar(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_ffpm_cnt",], aes(y=cnt/3),stat="identity",fill="grey") +
+  geom_bar(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type %in% c("somatic_hc_cnt","germline_hc_cnt","low_af_hc_cnt"),], aes(y=cnt,colour=cnt_type),stat="identity") +
+  geom_tile(aes(x=patient_id,y=-1.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=0.5,show.legend = T) +
+  geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + 
+  scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + theme(axis.ticks.x=element_blank()) + labs(x="", y="#fusions",fill="Cancer type group")  + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.3,20),clip="off") + scale_y_continuous(sec.axis = ~ .*3)#5,breaks = seq(0, 20, 2))
+
+#annotation bar with colours and black overlay
+ggplot(patient_fusion_cnt_long, aes(x=patient_id)) +
+    geom_bar(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_ffpm_cnt",], aes(y=cnt/2.5),stat="identity",fill="grey",alpha=0.5) +
+geom_point(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="somatic_hc_cnt" & patient_fusion_cnt_long$cnt>0,], aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2) +  geom_tile(aes(x=patient_id,y=-1.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=0.5,show.legend = F) + geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + 
+scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + theme(axis.ticks.x=element_blank()) + labs(x="", y="#fusions",fill="Cancer type group")  + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.3,20),clip="off") + scale_y_continuous(sec.axis = ~ .*2.5, breaks = seq(0, 20, 2))
+
+
+patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label, levels=unique(patient_fusion_cnt_table$primary_group_shorthand_label[order(-patient_fusion_cnt_table$somatic_hc_cnt)]))
+
+patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id, levels = patient_fusion_cnt_table$patient_id[order(patient_fusion_cnt_table$primary_group_shorthand_label, -patient_fusion_cnt_table$somatic_hc_cnt, -patient_fusion_cnt_table$clinical_cnt,-patient_fusion_cnt_table$somatic_hc_oncotsg_cnt,-patient_fusion_cnt_table$predicted_ffpm_cnt)])
+
+patient_fusion_cnt_long = tidyr::gather(patient_fusion_cnt_table[,c("patient_id","predicted_cnt","predicted_ffpm_cnt","validated_cnt","precise_confident_cnt","not_precise_confident_cnt","somatic_hc_cnt","somatic_hc_oncotsg_cnt","germline_hc_cnt","low_af_hc_cnt","ambiguous_hc_cnt","somatic_not_hc_cnt","germline_not_hc_cnt","low_af_not_hc_cnt","ambiguous_not_hc_cnt","fga","max_cna","min_cna","primary_group_shorthand_label")], key = cnt_type, value = cnt, -patient_id,-primary_group_shorthand_label,-primary_group_shorthand_label)
+
+patient_fusion_cnt_long$primary_group_shorthand_label = factor(patient_fusion_cnt_long$primary_group_shorthand_label)
+
+#adjust ordering of prigroup_colors and should be adjusted accordingly 
+prigroup_colors$primary_group_shorthand_label = factor(prigroup_colors$primary_group_shorthand_label,levels=levels(patient_fusion_cnt_long$primary_group_shorthand_label))
+prigroup_colors=prigroup_colors[order(prigroup_colors$primary_group_shorthand_label),]
+
+```
+
+Predicted ffpm >0.1
+```{r}
+max(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_ffpm_cnt",c("cnt")])/
+  (max(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="somatic_hc_cnt",c("cnt")])+1)
+
+second_axis_scale=2.5
+
+
+#annotation bar with colours and black overlay
+p=ggplot(patient_fusion_cnt_long, aes(x=patient_id)) +
+    geom_bar(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_ffpm_cnt",], aes(y=cnt/second_axis_scale),stat="identity",fill="grey",alpha=0.5) +
+  geom_point(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="somatic_hc_cnt" & patient_fusion_cnt_long$cnt>0,], aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2.5,show.legend = F) + 
+  geom_tile(aes(x=patient_id,y=-.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=1,show.legend = T) + 
+  geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + 
+  geom_point(data=filter(patient_fusion_cnt_long,patient_id %in% filter(uq_fusions_hc,somatic_variant&(anno_has_oncogene|anno_has_tsg))$patient_id & !patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1),alpha=0.35) + 
+  scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + labs(x="", y="#tumor specific high confidence fusions", fill="Primary cancer type group") + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.5,20),clip="off") + scale_y_continuous(sec.axis = sec_axis(~ . *second_axis_scale , name="# predicted fusions FFPM>0.1"), breaks = seq(0, 20, 2))
+print(p)
+p+theme(axis.ticks.x=element_blank()) + labs(x="", y="#tumor specific high confidence fusions", fill="") + theme(legend.position = "bottom")
+
+```
+
+With all predicted fusions
+```{r}
+max(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_cnt",c("cnt")])/(max(patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="somatic_hc_cnt",c("cnt")])+1)
+second_axis_scale=22
+
+#annotation bar with colours and black overlay
+p=ggplot(patient_fusion_cnt_long, aes(x=patient_id)) +
+    geom_bar(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="predicted_cnt",], aes(y=cnt/second_axis_scale),stat="identity",fill="grey",alpha=0.5) +
+  geom_point(data=patient_fusion_cnt_long[patient_fusion_cnt_long$cnt_type=="somatic_hc_cnt" & patient_fusion_cnt_long$cnt>0,], aes(x=patient_id,y=cnt,fill=primary_group_shorthand_label),shape=21,size=2.5,show.legend = F) + 
+  geom_tile(aes(x=patient_id,y=-.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=1,show.legend = T) + 
+  geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-.55),fill="black",stat = "identity",height=0.5,alpha=0.35) + 
+  geom_point(data=filter(patient_fusion_cnt_long,patient_id %in% filter(uq_fusions_hc,somatic_variant&(anno_has_oncogene|anno_has_tsg))$patient_id & !patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1),alpha=0.35) + 
+  scale_x_discrete(labels=NULL,breaks=NULL) + theme_bw() + labs(x="", y="#tumor specific high confidence fusions", fill="Primary cancer type group") + scale_fill_manual(values=prigroup_colors$color) + coord_cartesian(ylim=c(-0.5,20),clip="off") + scale_y_continuous(sec.axis = sec_axis(~ . *second_axis_scale , name="# predicted fusions "), breaks = seq(0, 20, 2))
+print(p)
+p+theme(axis.ticks.x=element_blank()) + labs(x="", y="#tumor specific high confidence fusions", fill="") + theme(legend.position = "bottom")
+
+```
+
+```{r}
+ggplot(uq_fusions_hc) + geom_bar(aes(x=patient_id,fill=annotation)) + ggtitle("Comparison to external resources") +facet_wrap(~variant_type,ncol = 1)+  #geom_tile(aes(x=patient_id,y=-.5,fill=primary_group_shorthand_label),stat = "identity",height=0.35,color="black",alpha=1,show.legend = T) + 
+  geom_tile(data=filter(patient_fusion_cnt_long,patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-.55),fill="black",stat = "identity",height=0.5,alpha=0.35) 
+#geom_point(data=filter(patient_fusion_cnt_long,patient_id %in% filter(uq_fusions_hc,somatic_variant&(anno_has_oncogene|anno_has_tsg))$patient_id & !patient_id %in% filter(patient_metadata,fusion_status)$patient_id),aes(x=patient_id,y=-1),alpha=0.35)
+
+
+```
+
+# SV type analysis
+
+Everything is for high confidence fusions and counting every patient-fusion once or every uq fusion once
+=> For paper look at uq gene pairs
+
+
+## Unique gene pairs
+
+Excl ambiguous from the figures/analysis
+& set KIAA1549--BRAF svtype label to "DUP" instead of "complex" because of "DUP, INV" because that one patient also had l2fc and now it screws up my figures
+uq_gene_pairs_hc[uq_gene_pairs_hc$fusion_name=="KIAA1549--BRAF",c("svtype_label")]="DUP"
+
+```{r}
+#uq_gene_pairs_hc_ambiguous
+
+uq_gene_pairs_hc[uq_gene_pairs_hc$annotation=="",c("annotation")]="unknown"
+uq_gene_pairs_hc$annotation = factor(uq_gene_pairs_hc$annotation,levels = c("unknown","cancer","both","common","clinical"))
+annotation_colors = c("#d8e3c5","#CA0020","#F4A582","#92C5DE","#984EA3")
+
+# Facet label names for up/downstream genes
+uq_gene_pairs_hc$variant_type = factor(uq_gene_pairs_hc$variant_type,levels = c("somatic", "germline","low_af"))
+variant_type.labels <- c("tumor-specific", "germline","low AF")
+names(variant_type.labels) <- c("somatic", "germline","low_af")
+#facet_wrap(... labeller = labeller(side = side.labs))
+
+
+```
+```{r}
+ggplot(uq_gene_pairs_hc) + geom_bar(aes(y=svtype_label,fill=annotation),size=0.2,color="black") + facet_wrap(~variant_type,nrow=3, labeller = labeller(variant_type = variant_type.labels)) + scale_fill_manual(values = annotation_colors)+ theme_bw() + ylab("") + xlab("# unique gene pairs") + theme(legend.position = "right" )
+
+ggplot(uq_gene_pairs_hc) + geom_boxplot(aes(y=svtype_label,x=svlen),outlier.shape=NA) + geom_jitter(aes(y=svtype_label,x=svlen,fill=annotation),shape=21,width = 0.1,height = 0.1,alpha=0.75)  + facet_wrap(~variant_type,nrow=3,labeller = labeller(variant_type = variant_type.labels)) + scale_x_continuous(trans="log2")+ theme_bw() + ylab("") + xlab("SV length (bp)") + scale_fill_manual(values = annotation_colors) + theme(legend.position = "right" )
+
+```
+
+
+```{r}
+
+ggplot(uq_gene_pairs_hc) + geom_bar(aes(y=svtype_label,fill=variant_type)) + facet_wrap(~variant_type,nrow=3) +  ggtitle("SV types (uq gene pairs)") + scale_fill_brewer(palette="Set2") + theme_bw() + ylab("")
+
+ggplot(filter(uq_gene_pairs_hc,variant_type=="somatic")) + geom_bar(aes(y=svtype_label,fill=clinically_validated)) + ggtitle("Tumor specific only, clin.rel separate (uq gene pairs)") + scale_fill_brewer(palette = "Set2",direction = -1)+ theme_bw()
+
+ggplot(uq_gene_pairs_hc) + geom_boxplot(aes(y=svtype_label,x=svlen),outlier.shape=NA) + geom_jitter(aes(y=svtype_label,x=svlen),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type,nrow=3) + ggtitle("SV type vs size (uq gene pairs)") + scale_x_continuous(trans="log2")+ theme_bw() + ylab("") + xlab("SV length (bp)")
+
+
+ggplot(uq_gene_pairs_hc %>% filter(svtype %in% c("DEL","DUP","INV","INS"))) + geom_boxplot(aes(x=svtype_label,y=svlen),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=svlen),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type,ncol=3) + ggtitle("SV type vs size (uq gene pairs)") + scale_y_continuous(trans="log2")+ theme_bw()
+
+
+ggplot(uq_gene_pairs_hc %>% filter(svtype %in% c("DEL","DUP","INV","INS"))) + geom_boxplot(aes(y=svtype_label,x=svlen),outlier.shape=NA) + geom_jitter(aes(y=svtype_label,x=svlen),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type,nrow=3,, labeller = labeller(variant_type = variant_type.labels)) + ggtitle("SV type vs size (uq gene pairs)") + scale_x_continuous(trans="log2")+ theme_bw()
+
+ggplot(uq_gene_pairs_hc) + geom_boxplot(aes(x=svtype_label,y=tumor_normal_af,color=variant_type),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=tumor_normal_af,color=variant_type),width = 0.1,height = 0.1,alpha=0.3) + ggtitle("SV type vs AF (tumor-normal) (uq gene pairs)")+ theme_bw() + xlab("") +ylab("tumor AF - normal AF")
+
+ggplot(uq_gene_pairs_hc) + geom_boxplot(aes(x=svtype_label,y=tumor_normal_af),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=tumor_normal_af),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type, labeller = labeller(variant_type = variant_type.labels)) + ggtitle("Allelic fraction of uq fusion gene pairs per SV type")+ theme_bw() + xlab("") + ylab("tumor AF - normal AF")
+
+ggplot(uq_gene_pairs_hc) + geom_bar(aes(x=variant_type,fill=annotation),color="black",size=0.1) + ggtitle("Comparison to external resources")+ theme_bw() +scale_fill_manual(values = annotation_colors)
+
+
+```
+
+
+## Patient-fusion 
+
+SV types
+
+```{r}
+ggplot(uq_fusions_hc) + geom_bar(aes(y=svtype_label)) + facet_wrap(~variant_type,nrow=3) + ggtitle("SV types")
+
+ggplot(filter(uq_fusions_hc,variant_type=="somatic")) + geom_bar(aes(y=svtype_label)) + facet_wrap(~clinically_validated,nrow=2) + ggtitle("Tumor specific only, clin.rel separate")
+```
+
+Allele frequency
+
+```{r}
+ggplot(uq_fusions_hc) + geom_boxplot(aes(x=svtype_label,y=tumor_normal_af),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=tumor_normal_af),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type) + ggtitle("SV type vs AF (tumor-normal)")
+
+ggplot(uq_fusions_hc) + geom_boxplot(aes(x=svtype_label,y=tumor_normal_af,color=variant_type),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=tumor_normal_af,color=variant_type),width = 0.1,height = 0.1,alpha=0.3) + ggtitle("SV type vs AF (tumor-normal)")
+
+ggplot(filter(uq_fusions_hc,variant_type=="somatic")) + geom_boxplot(aes(x=svtype_label,y=tumor_normal_af),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=tumor_normal_af),width = 0.1,height = 0.1,alpha=0.3) + ggtitle("Tumor specific SV type vs AF (tumor-normal)") + facet_wrap(~variant_type)
+
+```
+
+ SV size
+ 
+```{r}
+ggplot(uq_fusions_hc) + geom_boxplot(aes(y=svtype_label,x=svlen),outlier.shape=NA) + geom_jitter(aes(y=svtype_label,x=svlen),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type,nrow=3) + ggtitle("SV type vs size") + scale_x_continuous(trans="log2")
+
+ggplot(uq_fusions_hc) + geom_boxplot(aes(x=svtype_label,y=svlen),outlier.shape=NA) + geom_jitter(aes(x=svtype_label,y=svlen),width = 0.1,height = 0.1,alpha=0.3)  + facet_wrap(~variant_type,ncol=3) + ggtitle("SV type vs size") + scale_y_continuous(trans="log2")
+
+
+```
+
+Annotation
+
+```{r}
+ggplot(uq_fusions_hc) + geom_bar(aes(x=variant_type,fill=annotation)) + ggtitle("Comparison to external resources")
+
+```
+
+
+# Gene expression, exon imbalance and CNAs
+
+Based on selected fusion candidates (see supplementary)
+
+```{r}
+
+disruptive_lst=c(disruptive_lst,"PMCID389AAA_ANO5--LRIG3", "PMCID389AAA_LRIG3--PPFIA2","PMCID255AAF_ZFPM2--LINC00824")
+activating_lst=c(activating_lst,"PMCID389AAA_TRPM7--USP8","PMCID255AAF_GNA12--WDCP")
+
+
+genes_long = make_gene_exp_long(cohort_report)
+genes_long= genes_long %>% left_join(patient_metadata[,c("patient_id","patient_label")])
+genes_long$functional_effect=""
+genes_long[genes_long$patient_fusion %in% activating_lst,c("functional_effect")]="activating"
+genes_long[genes_long$patient_fusion %in% disruptive_lst,c("functional_effect")]="disruptive"
+#genes_long[genes_long$patient_fusion %in% conflicting_lst,c("functional_effect")]="unclear"
+
+
+
+fusion_selection = selected_fusion_candidates
+
+display_fpkm_long = genes_long
+display_fpkm_long$fusion_name = factor(display_fpkm_long$fusion_name,  levels=unique(display_fpkm_long[order(display_fpkm_long$fpkm_zscore_domain),c("fusion_name")]))
+
+display_fpkm_long =  display_fpkm_long %>% filter(patient_fusion_sv %in% fusion_selection$patient_fusion_sv) %>% unique()
+
+max_cna_l2fc= max(abs(display_fpkm_long[!grepl("Inf",display_fpkm_long$cna_l2fc),c("cna_l2fc")]),na.rm = T)
+#max_exon_l2fc= max(abs(display_fpkm_long[!grepl("Inf",display_fpkm_long$exon_l2fc),c("exon_l2fc")]),na.rm = T)
+max_exon_l2fc = 6 
+
+#for display purposes
+display_fpkm_long = display_fpkm_long %>% mutate(exon_l2fc=ifelse(exon_l2fc>max_exon_l2fc,max_exon_l2fc,exon_l2fc))
+display_fpkm_long = display_fpkm_long %>% mutate(exon_l2fc=ifelse(exon_l2fc<(-max_exon_l2fc),-max_exon_l2fc,exon_l2fc))
+
+display_fpkm_long[grepl("-Inf",display_fpkm_long$exon_l2fc),c("exon_l2fc")]=-max_exon_l2fc
+display_fpkm_long[grepl("Inf",display_fpkm_long$exon_l2fc),c("exon_l2fc")]=max_exon_l2fc
+
+
+display_fpkm_long_bk = display_fpkm_long
+
+# Facet label names for up/downstream genes 
+side.labs <- c("5' gene", "3' gene")
+names(side.labs) <- c("upstream", "downstream")
+
+```
+
+## FPKM plots pan cancer, group, domain
+
+Subset to onco/tsg, somatic only (no low af)
+
+Check which ones have no functional effect annotated yet 
+Annotate as 'anno has kinase', remove from label, mark fusions with astrix if genomically unstable patient
+
+```{r}
+display_fpkm_long =  display_fpkm_long_bk %>% filter(patient_fusion_sv %in% fusion_selection_somatic_oncotsg$patient_fusion_sv) %>% unique()
+fusion_selection_somatic_oncotsg %>% filter(patient_fusion %in% display_fpkm_long[display_fpkm_long$functional_effect=="",c("patient_fusion")]) %>% select(patient_fusion,gup_label,gdw_label)
+
+display_fpkm_long = display_fpkm_long %>% mutate(anno_has_kinase = grepl("kinase",label))
+
+display_fpkm_long$label = str_replace(display_fpkm_long$label,"kinase,","")
+display_fpkm_long$label = str_replace(display_fpkm_long$label,"kinase","")
+display_fpkm_long[!is.na(display_fpkm_long$label)&display_fpkm_long$label=="",c("label")]=NA
+
+#check clean labels
+unique(display_fpkm_long$label)
+
+display_fpkm_long$fusion_name=as.character(display_fpkm_long$fusion_name)
+display_fpkm_long = display_fpkm_long %>% mutate(high_fusion_burden = patient_id %in% patients_high_fusion_burden) %>%
+  mutate(fusion_name = ifelse(high_fusion_burden,paste0("* ",fusion_name),fusion_name))
+
+display_fpkm_long$fusion_name=factor(display_fpkm_long$fusion_name,levels = unique(display_fpkm_long[order(display_fpkm_long$fpkm_zscore_domain),c("fusion_name")]))
+
+```
+
+
+```{r, fig.width=10,fig.height=11}
+
+for(plot_col in c("fpkm_zscore_domain","fpkm_zscore_group","fpkm_zscore")) {
+
+
+#plot_col= "fpkm_zscore_domain"
+p = ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill=plot_col)) +
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~functional_effect+side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu") +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) +
+  xlab(plot_col) + ylab("") 
+print(p)
+p=p+geom_label(data=filter(display_fpkm_long,anno_has_kinase),size=2,color="black",label="K",nudge_x = 1,fill="white")
+print(p)
+
+
+p = ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill="cna_l2fc")) + 
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~functional_effect + side,ncol=2,scales = "free",labeller = labeller(side = side.labs))  + theme_bw() + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-max_cna_l2fc,max_cna_l2fc)) +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) + 
+  xlab(plot_col) + ylab("") 
+print(p)
+
+p = ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill="exon_l2fc")) + 
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-max_exon_l2fc,max_exon_l2fc)) +
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~functional_effect + side,ncol=2,scales = "free",labeller = labeller(side = side.labs))  + theme_bw() + 
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) +
+  xlab(plot_col) + ylab("") 
+print(p)
+
+p = ggplot(display_fpkm_long,aes_string(y="cna_l2fc",x=plot_col,fill=plot_col)) + 
+  geom_point(aes_string(fill=plot_col),size=6,shape=21)+
+  geom_text_repel(aes(label=gene_name,color=label),size=3,box.padding = 0.8,max.overlaps = 20,min.segment.length = 0.1) + 
+  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) + 
+  facet_wrap(~functional_effect+side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu") +
+  scale_y_continuous(limits=c(-1.1*max(display_fpkm_long$cna_l2fc,na.rm=T),1.1*max(display_fpkm_long$cna_l2fc,na.rm=T))) + 
+  scale_x_continuous(limits=c(-1.1*max(display_fpkm_long[,plot_col],na.rm=T),1.1*max(display_fpkm_long[,plot_col],na.rm=T))) + 
+  coord_cartesian(clip="off") + 
+    xlab(plot_col) + ylab("") 
+print(p)
+
+p = ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill="svtype")) +
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  #scale_fill_distiller(palette = "RdBu") +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) +
+  xlab(plot_col) + ylab("") 
+print(p)
+
+}
+```
+
+### For manuscript
+
+Keep display fpkm above
+
+```{r, fig.width=11,fig.height=11}
+
+plot_col= "fpkm_zscore_domain"
+
+p = ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill=plot_col)) +
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~functional_effect+side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu") +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) +
+  xlab("FPKM z-score (cancer type domain)") + ylab("") + labs(fill="FPKM z-score",shape="")
+p
+p=p+geom_label(data=filter(display_fpkm_long,anno_has_kinase),size=2,color="black",label="K",nudge_x = 1,fill="white")
+p
+```
+```{r, fig.width=8,fig.height=11}
+p+theme( axis.text.y.left  = element_blank(),strip.background = element_rect(fill="#EEEEEE" ))
+
+```
+
+### For presentation
+
+```{r}
+display_fpkm_long =  display_fpkm_long_bk %>% filter(patient_fusion_sv %in% fusion_selection_somatic_oncotsg$patient_fusion_sv & functional_effect %in% c("activating","disruptive")) %>% unique()
+
+display_fpkm_long$fusion_name = factor(display_fpkm_long$fusion_name,  levels=unique(display_fpkm_long[order(display_fpkm_long$fpkm_zscore_domain),c("fusion_name")]))
+
+display_fpkm_long$label = str_replace(display_fpkm_long$label,"kinase,","")
+display_fpkm_long$label = str_replace(display_fpkm_long$label,"kinase","")
+display_fpkm_long[!is.na(display_fpkm_long$label)&display_fpkm_long$label=="",c("label")]=NA
+
+plot_col= "fpkm_zscore_domain"
+
+ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill=plot_col)) +
+  geom_col(color="black",size=0.2,width = 0.75,position="identity",alpha=0.8) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(name="fpkm z-score",palette = "RdBu",limits=c(-max(display_fpkm_long[,plot_col],na.rm=T)*1.2,max(display_fpkm_long[,plot_col],na.rm=T)*1.2)) +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T)*1.2,max(display_fpkm_long[,plot_col],na.rm=T)*1.2)) +
+  xlab("FPKM z-score (cancer type domain)") + ylab("") 
+
+
+ggplot(display_fpkm_long %>% filter( fusion_name %in% filter(display_fpkm_long,abs(fpkm_zscore_domain)>=2&label!="")$fusion_name)
+       ,aes_string(y="fusion_name",x=plot_col,fill=plot_col)) +
+  geom_col(color="black",size=0.2,width = 0.75,position="identity",alpha=0.8) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(name="fpkm z-score",palette = "RdBu",limits=c(-max(display_fpkm_long[,plot_col],na.rm=T)*1.2,max(display_fpkm_long[,plot_col],na.rm=T)*1.2)) +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T)*1.2,max(display_fpkm_long[,plot_col],na.rm=T)*1.2)) +
+  xlab("FPKM z-score (cancer type domain)") + ylab("") +
+  theme(legend.position = "bottom")
+
+
+```
+## Expression of clin-rel fusions
+
+```{r}
+display_fpkm_long =  genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_df,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv) %>% unique()
+
+plot_col= "fpkm_zscore_domain"
+ggplot(display_fpkm_long,aes_string(y="fusion_name",x=plot_col,fill="svtype")) +
+  geom_bar(color="black",size=0.1,width = 0.75,aes_string(y="fusion_name",x=plot_col),stat = "identity",position="identity",alpha=0.66) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  geom_vline(xintercept = 0) + facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) +
+  xlab(plot_col) + ylab("") 
+```
+
+## Expression in high/low fusion burden patients
+
+domain  is based on primary_group_label 
+
+
+ONLY patients with high fusion burden
+```{r, fig.width=10,fig.height=11}
+plot_col= "fpkm_zscore_domain"
+
+ggplot(filter(display_fpkm_long_bk,patient_id %in% patients_high_fusion_burden),
+           aes_string(y="fusion_name",x=plot_col,fill="cna_l2fc")) + 
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~patient_id + side,ncol=2,scales = "free_y")  + 
+  theme_bw() + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-max_cna_l2fc,max_cna_l2fc)) +
+  scale_x_continuous(limits=c(-max(display_fpkm_long[,plot_col],na.rm=T),max(display_fpkm_long[,plot_col],na.rm=T))) + 
+  xlab(plot_col) + ylab("") 
+
+
+```
+
+```{r,fig.width=8,fig.height=4}
+
+display_fpkm_long =  genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_df,!germline_variant&grepl(",",tools_any_wgs)&(anno_has_oncogene|anno_has_tsg))$patient_fusion_sv & patient_id %in% patients_high_fusion_burden)
+
+display_fpkm_long =  genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_df,!germline_variant&precise_confident)$patient_fusion_sv & patient_id %in% patients_high_fusion_burden)
+
+#NOTE includes cancer genes and chimera
+subset_cancer_related = display_fpkm_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_df,annotation=="cancer")$patient_fusion_sv)
+
+ggplot(display_fpkm_long,aes(y=cna_l2fc,x=fpkm_zscore_domain,fill=fpkm_zscore_domain)) + 
+  geom_point(data=filter(display_fpkm_long,cna_l2fc<2),aes(fill=fpkm_zscore_domain),size=2,shape=21)+
+  geom_point(data=filter(display_fpkm_long,cna_l2fc>2),aes(fill=fpkm_zscore_domain),size=6,shape=21)+
+  geom_text_repel(data=filter(display_fpkm_long,cna_l2fc>2),aes(label=gene_name),size=3,box.padding = 0.8,max.overlaps = 20,min.segment.length = 0.1) + 
+  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) + 
+  facet_wrap(~side,ncol=2,scales="free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu",limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) +
+  scale_y_continuous(limits=c(-1.1*max(display_fpkm_long$cna_l2fc,na.rm=T),1.1*max(display_fpkm_long$cna_l2fc,na.rm=T))) + 
+  scale_x_continuous(limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) + 
+  coord_cartesian(clip="off") + xlab("FPKM z-score (domain)") + ylab("CNA l2fc") 
+```
+
+```{r}
+p=ggplot(display_fpkm_long,aes(y=cna_l2fc,x=fpkm_zscore_domain,fill=fpkm_zscore_domain)) + 
+  geom_point(data=filter(display_fpkm_long,cna_l2fc<3),aes(fill=fpkm_zscore_domain),size=2,shape=21)+
+  geom_point(data=filter(display_fpkm_long,cna_l2fc>3),aes(fill=fpkm_zscore_domain),size=6,shape=21)+
+  geom_text_repel(data=filter(subset_cancer_related,cna_l2fc>3),aes(label=gene_name,color=patient_label),size=3,box.padding = 0.8,max.overlaps = 50,min.segment.length = 0.1) + 
+  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) + 
+  facet_wrap(~side,ncol=2,scales="free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu",limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) +
+  scale_y_continuous(limits=c(-1.1*max(display_fpkm_long$cna_l2fc,na.rm=T),1.1*max(display_fpkm_long$cna_l2fc,na.rm=T))) + 
+  scale_x_continuous(limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) + 
+  coord_cartesian(clip="off") + xlab("FPKM z-score (domain)") + ylab("CNA log-2 fold change") + labs(fill="FPKM zscore (domain)", colour="")
+p
+p+ theme(legend.position = "none") + scale_y_continuous(limits=c(-1.1*max(display_fpkm_long$cna_l2fc,na.rm=T),1.1*max(display_fpkm_long$cna_l2fc,na.rm=T)))
+```
+
+Presentation figure of fold change without the log for PMCID203AAL only: low-AF as well.
+```{r}
+display_fpkm_long =  genes_long %>% filter(patient_fusion_sv %in% 
+                                             filter(uq_fusions_hc, patient_id=="PMCID203AAL" &!germline_variant)$patient_fusion_sv)
+
+display_fpkm_long$cna_fold_change = 2^(display_fpkm_long$cna_l2fc)
+
+ggplot(display_fpkm_long,aes(y=cna_fold_change,x=fpkm_zscore_domain,fill=fpkm_zscore_domain)) + 
+  geom_point(aes(fill=fpkm_zscore_domain),size=6,shape=21,show.legend = F)+
+  geom_text_repel(aes(label=gene_name,color=cytoband),size=3,box.padding = 0.8,max.overlaps = 12,min.segment.length = 0.1) + 
+  geom_vline(xintercept = 0) + geom_hline(yintercept = 0) + 
+  facet_wrap(~side,ncol=2,scales="free",labeller = labeller(side = side.labs)) + theme_bw() +
+  scale_fill_distiller(palette = "RdBu",limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) +
+  scale_y_continuous(limits=c(-1.1*max(display_fpkm_long$cna_fold_change,na.rm=T),1.1*max(display_fpkm_long$cna_fold_change,na.rm=T))) + 
+  scale_x_continuous(limits=c(-1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T),1.1*max(display_fpkm_long$fpkm_zscore_domain,na.rm=T))) + 
+  coord_cartesian(clip="off") + xlab("FPKM z-score (domain)") + ylab("CN fold change") + labs(fill="FPKM z-score (domain)",color="Cytoband") + theme(legend.position="bottom")
+
+```
+
+### Without patients with high fusion burden
+
+All cancer related that are not yet categorised
+
+```{r, fig.width=10,fig.height=11}
+
+display_fpkm_long =  display_fpkm_long_bk %>% filter(!patient_id %in% patients_high_fusion_burden & functional_effect=="") %>% unique()
+scale_limits = max(display_fpkm_long[,plot_col],na.rm=T)
+ggplot(display_fpkm_long,aes_string(y="patient_fusion",x=plot_col,fill=plot_col)) + 
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs))  + theme_bw() + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-scale_limits,scale_limits)) +
+  scale_x_continuous(limits=c(-scale_limits,scale_limits)) + 
+  xlab(plot_col) + ylab("") 
+
+```
+
+
+Without patients with high fusion burden, only categorised ones
+```{r, fig.width=10,fig.height=11}
+display_fpkm_long =  display_fpkm_long_bk %>% filter(!patient_id %in% patients_high_fusion_burden & functional_effect!="") %>% unique()
+scale_limits = max(display_fpkm_long[,plot_col],na.rm=T)
+ggplot(display_fpkm_long,aes_string(y="patient_fusion",x=plot_col,fill=plot_col)) +
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~functional_effect + side,ncol=2,scales = "free",labeller = labeller(side = side.labs))  + theme_bw() + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-scale_limits,scale_limits)) +
+  scale_x_continuous(limits=c(-scale_limits,scale_limits)) + 
+  xlab(plot_col) + ylab("") 
+
+```
+
+Somatic onco tsg and chimera without assigned category
+```{r, fig.width=10,fig.height=11}
+display_fpkm_long =  display_fpkm_long_bk %>% filter(patient_fusion_sv %in% fusion_selection_somatic_oncotsg_chimera$patient_fusion_sv & !patient_id %in% patients_high_fusion_burden & functional_effect=="") %>% unique()
+
+scale_limits = max(display_fpkm_long[,plot_col],na.rm=T)
+
+ggplot(display_fpkm_long,aes_string(y="patient_fusion",x=plot_col,fill=plot_col)) + 
+  geom_col(color="black",size=0.1,width = 0.75,position="identity") + 
+  geom_vline(xintercept = 0) + 
+  geom_point(aes(shape=label),size=2,color="black")  + 
+  facet_wrap(~side,ncol=2,scales = "free",labeller = labeller(side = side.labs))  + theme_bw() + 
+  scale_fill_distiller(palette = "RdBu",limits = c(-scale_limits,scale_limits)) +
+  scale_x_continuous(limits=c(-scale_limits,scale_limits)) + 
+  xlab(plot_col) + ylab("") 
+
+```
+
+
+## How do CNAs and expression relate?
+```{r}
+
+ggplot(uq_fusions_hc) + geom_point(aes(x=gdw_copy_ratio_l2fc_mean,y=gdw_fpkm_zscore_domain))
+ggplot(uq_fusions_hc) + geom_point(aes(x=gup_copy_ratio_l2fc_mean,y=gup_fpkm_zscore_domain))
+
+
+```
+
+## What reference do we use for expression? Pan cancer vs group vs domain
+
+Compare the different z scores, split by gene label, upstream/downstream and also fusion positive patient or not.
+
+The gating with red lines is to make it visible what we would lose/gain if you use domain/pan cancer/group 
+It looks like using domain/domain-assigned is just fine!
+
+```{r}
+
+fusion_selection = filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg))
+
+display_fpkm_long = genes_long
+#display_fpkm_long$fusion_name = factor(display_fpkm_long$fusion_name,  levels=unique(display_fpkm_long[order(display_fpkm_long$fpkm_zscore),c("fusion_name")]))
+display_fpkm_long =  display_fpkm_long %>% filter(patient_fusion %in% fusion_selection$patient_fusion)
+
+
+min_value=min(c(display_fpkm_long$fpkm_zscore,display_fpkm_long$fpkm_zscore_domain),na.rm = T)*1.05
+max_value=max(c(display_fpkm_long$fpkm_zscore,display_fpkm_long$fpkm_zscore_domain),na.rm = T)*1.05
+
+ggplot(display_fpkm_long,aes(x=fpkm_zscore_domain,y=fpkm_zscore)) + geom_point(aes(color=label)) + coord_cartesian(xlim = c(min_value,max_value), ylim=c(min_value,max_value)) + geom_abline(slope=1,intercept = c(0,0)) + facet_wrap(~fusion_positive_patient+side) + ggtitle("Z-score domain vs pan cancer")
+
+ggplot(display_fpkm_long,aes(x=fpkm_zscore_domain,y=fpkm_zscore)) + geom_point(aes(color=label)) + coord_cartesian(xlim = c(min_value,max_value), ylim=c(min_value,max_value)) + geom_abline(slope=1,intercept = c(0,0)) + 
+  geom_hline(yintercept = 2,color="red") + geom_hline(yintercept = (-2),color="red") +
+  geom_vline(xintercept = 2,color="red") + geom_vline(xintercept = (-2),color="red") +
+  facet_wrap(~label) + ggtitle("Z-score domain vs pan cancer")
+
+
+min_value=min(c(display_fpkm_long$fpkm_zscore_group,display_fpkm_long$fpkm_zscore_domain),na.rm = T)*1.05
+max_value=max(c(display_fpkm_long$fpkm_zscore_group,display_fpkm_long$fpkm_zscore_domain),na.rm = T)*1.05 
+
+
+ggplot(display_fpkm_long,aes(x=fpkm_zscore_domain,y=fpkm_zscore_group)) + geom_point(aes(color=label)) + coord_cartesian(xlim = c(min_value,max_value), ylim=c(min_value,max_value)) + geom_abline(slope=1,intercept = c(0,0)) + 
+  geom_hline(yintercept = 2,color="red") + geom_hline(yintercept = (-2),color="red") +
+  geom_vline(xintercept = 2,color="red") + geom_vline(xintercept = (-2),color="red") +
+  facet_wrap(~label) + ggtitle("Z-score group vs domain")
+
+#ggplot(display_fpkm_long,aes(x=fpkm_zscore_domain,y=fpkm_zscore_domain_assigned)) + geom_point(aes(color=label)) + coord_cartesian(xlim = c(min_value,max_value), ylim=c(min_value,max_value)) + ggtitle("Z-score domain vs domain assigned")
+
+
+```
+
+Since domain assigned is almost the same, dont bother with the re-annotation!
+
+
+# Systematic expression candidate fusions
+##Candidate fusions in patients with stable genome
+
+```{r include=F}  
+if(FALSE){
+fusion_selection = filter(selected_fusion_candidates,(anno_has_oncogene|anno_has_tsg)&!patient_id %in% patients_high_fusion_burden)
+
+for(candidate_fusion in fusion_selection$patient_fusion) {
+  candidate = fusion_selection %>% filter(patient_fusion==candidate_fusion)
+  if(nrow(gene_expression_analysis[gene_expression_analysis$ensembl_id==candidate$gup_ensembl_id,])>0){
+    print(plot_fpkm_log2(gene_expression_analysis,candidate$gup_ensembl_id,candidate$patient_id,candidate$gup_gene_id,"primary_group_shorthand_label"))
+    print(plot_fpkm_log2(gene_expression_analysis,candidate$gup_ensembl_id,candidate$patient_id,candidate$gup_gene_id,"domain_label"))
+    print(plot_zscore_dist_domain(gene_expression_analysis,candidate$gup_ensembl_id,candidate$patient_id,candidate$gup_gene_id))
+    }
+  if(nrow(gene_expression_analysis[gene_expression_analysis$ensembl_id==candidate$gdw_ensembl_id,])>0){
+    print(plot_fpkm_log2(gene_expression_analysis,candidate$gdw_ensembl_id,candidate$patient_id,candidate$gdw_gene_id,"primary_group_shorthand_label"))
+    print(plot_fpkm_log2(gene_expression_analysis,candidate$gdw_ensembl_id,candidate$patient_id,candidate$gdw_gene_id,"domain_label"))
+    
+    print(plot_zscore_dist_domain(gene_expression_analysis,candidate$gdw_ensembl_id,candidate$patient_id,candidate$gdw_gene_id))
+  }
+}
+}
+
+
+```
+
+
+### MTAP-CDKN2B-AS1
+
+Only recurrent somatic fusion not identified as clinically relevant 
+
+```{r}
+candidate = filter(cohort_report,grepl("MTAP--CDKN2B-AS1",fusion_name)) 
+
+candidate %>% select(fusion_display_properties)
+
+gene_expression_analysis= gene_expression_analysis %>% left_join(patient_labels_lookup,by="patient_id")
+
+gene_expression_analysis %>% filter(ensembl_id %in% candidate$gdw_ensembl_id & patient_id %in% candidate$patient_id) %>% select(fpkm_zscore,fpkm_zscore_domain,patient_id,primary_group_shorthand_label,fpkm_log_normal_dist_domain)
+
+p = plot_fpkm_log2(gene_expression_analysis,"ENSG00000240498",candidate$patient_id,"CDKN2B-AS1")
+print(p)
+p + geom_label_repel(data=filter(gene_expression_analysis,ensembl_id == "ENSG00000240498" & patient_id %in%  candidate$patient_id),aes(label=patient_label),nudge_y = -0.5,nudge_x=-0.5,min.segment.length = 0.5,alpha=0.75)
+
+p = plot_fpkm_log2(gene_expression_analysis,"ENSG00000147889",candidate$patient_id,"CDKN2A")
+print(p)
+p + geom_label_repel(data=filter(gene_expression_analysis,ensembl_id == "ENSG00000147889" & patient_id %in%  candidate$patient_id),aes(label=patient_label),nudge_y = -0.5,nudge_x=-0.5,min.segment.length = 0.5,alpha=0.75)
+#print(plot_fpkm_log2(gene_expression_analysis,"ENSG00000147883",candidate$patient_id,"CDKN2B"))
+# cdkn2b not present
+
+print(plot_zscore_dist_domain(gene_expression_analysis,"ENSG00000147889",candidate$patient_id,"CDKN2A"))
+
+
+```  
+
+account for CNA in that region on CDKN2A expression of patients
+```{r}
+target_cna = cohort_cna_target_regions %>% filter(region_name=="CDKN2A-1-3")
+target_expression = filter(gene_expression_analysis,ensembl_id=="ENSG00000147889")
+
+cna_vs_expression = target_cna[,c("region_name","copy_ratio_log2_mean","patient_id")] %>% left_join(target_expression,by="patient_id")
+
+ggplot(cna_vs_expression,aes(x=copy_ratio_log2_mean,y=fpkm_log)) + geom_point() + 
+  geom_point(data=filter(cna_vs_expression,patient_id %in% candidate$patient_id),color="red") + 
+  facet_wrap(~domain_label) +
+  ggtitle("Patients with MTAP fusion - CDK2A expression vs CNA (CDKN2A-1-3)")
+
+
+ggplot(filter(cna_vs_expression,primary_group_shorthand_label %in% candidate$primary_group_shorthand_label),aes(x=copy_ratio_log2_mean,y=fpkm_log)) + geom_point() + 
+  geom_point(data=filter(cna_vs_expression,patient_id %in% candidate$patient_id),color="red") + 
+    facet_wrap(~primary_group_shorthand_label) + 
+  ggtitle("Patients with MTAP fusion - CDK2A expression vs CNA (CDKN2A-1-3)")
+
+```
+
+
+### TP53 mutations
+
+
+```{r}
+candidate = filter(uq_fusions_df,grepl("TP53--",fusion_name)&somatic_variant&precise_confident) 
+candidate %>% select(fusion_name,patient_id,contains("gup_fpkm"),tumor_af_mean,normal_af_mean,svtype,svlen,gup_cytoband,gdw_cytoband)
+
+
+
+tp53_expression = gene_expression_analysis %>% filter(ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id) %>% mutate(gene_name="TP53") %>% left_join(patient_labels_lookup)
+
+#candidate %>% select(fusion_name,patient_id,tumor_type_label,primary_group_shorthand_label,tumor_af_mean,normal_af_mean,svtype,svlen,tools,gup_location,gdw_location,gup_sf_breakpoint,gdw_sf_breakpoint) %>% left_join(tp53_expression,by="patient_id") %>% arrange(-fpkm)
+
+## add colour coding?
+
+print(plot_zscore_dist_domain(gene_expression_analysis,candidate$gup_ensembl_id,candidate$patient_id,"TP53"))
+
+``` 
+
+```{r}
+p= plot_fpkm_log2(gene_expression_analysis,unique(candidate$gup_ensembl_id),candidate$patient_id,"TP53")
+print(p)
+p
+p +  geom_label_repel(data=filter(tp53_expression,patient_id %in% candidate$patient_id),aes(label=patient_label),nudge_y = -0.5,nudge_x=-0.5,min.segment.length = 0.5,alpha=0.75)
+
+p +  geom_label(data=filter(gene_expression_analysis,ensembl_id == candidate$gup_ensembl_id & patient_id %in% candidate$patient_id),aes(label=patient_id))
+
+## patient with tp53 SNV?
+p + geom_point(data=filter(gene_expression_analysis,ensembl_id == candidate$gup_ensembl_id & patient_id == "PMCID389AAA"),fill="lightgreen",size=3,shape=21) 
+## NOTE this patient seems to ahve intronic variant only??? 
+#filter(gene_expression_analysis,ensembl_id == highlight_gene & patient_id == "PMCID389AAA")
+
+## other osteos in grey
+p + geom_point(data=filter(gene_expression_analysis,ensembl_id == candidate$gup_ensembl_id & patient_id %in% filter(patient_metadata,grepl("steosarcoma",tumor_type_label))$patient_id),fill="grey",size=3,alpha=0.3)
+
+
+```
+
+
+Wilcox test of group means TP53 fused patients against rest of patients in domain (solids)
+
+```{r}
+print("TP53 mean fpkm log of patients")
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log)
+
+print("mean fpkm of domain, excl TP53- fusion patients")
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id & domain_label %in% candidate$domain_label)$fpkm_log)
+
+wilcox.test( filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log, 
+             filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id & domain_label %in% candidate$domain_label)$fpkm_log)
+```
+
+Same for full cohort
+```{r}
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id )$fpkm_log)
+
+wilcox.test( filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log, 
+             filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id)$fpkm_log)
+
+```
+
+
+### LSAMP
+
+```{r}
+candidate = filter(uq_fusions_df,grepl("LSAMP",fusion_name)&somatic_variant&precise_confident)
+candidate %>% select(fusion_name,patient_id,contains("gdw_fpkm"),tumor_af_mean,normal_af_mean,svtype,svlen,gup_cytoband,gdw_cytoband)
+print(plot_fpkm_log2(gene_expression_analysis,unique(candidate$gdw_ensembl_id),candidate$patient_id,"LSAMP"))
+
+highlight_gene=unique(candidate$gdw_ensembl_id)
+highlight_patients=candidate$patient_id
+gene_name="LSAMP"
+grouping="primary_group_shorthand_label"
+
+gene_exp_df = filter(gene_expression_analysis,ensembl_id == highlight_gene&domain_label=="neuro")
+       
+ggplot(gene_exp_df,aes(x=!! sym(grouping),y=fpkm_log)) + geom_boxplot(outlier.size = 0) +
+  geom_jitter(data=filter(gene_exp_df,!patient_id %in% highlight_patients),fill="grey",size=2,shape=21,
+              width = 0.1,height=0.1,alpha=0.65) +
+    geom_point(data=filter(gene_exp_df,patient_id %in% highlight_patients),fill="red",size=3,shape=21)  +   theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=1, hjust=1)) + xlab("") + ylab("gene expression FPKM (log2)") +
+    ggtitle(paste0(gene_name," expression (FPKM log2)"))
+
+
+```
+
+
+
+```{r}
+
+target_region="MYCN-2-3"
+target_gene="ENSG00000134323"
+target_cna = cohort_cna_target_regions %>% filter(region_name==target_region)
+target_expression = filter(gene_expression_analysis,ensembl_id==target_gene)
+
+cna_vs_expression = target_cna[,c("region_name","copy_ratio_log2_mean","patient_id")] %>% left_join(target_expression,by="patient_id")
+
+ggplot(cna_vs_expression,aes(x=copy_ratio_log2_mean,y=fpkm_log)) + geom_point(aes(fill=primary_group_shorthand_label),shape=21,size=2) + 
+  geom_point(data=filter(cna_vs_expression,patient_id %in% candidate$patient_id),shape=2,size=3) + 
+  scale_fill_manual(values=prigroup_colors$color) +
+  facet_wrap(~domain_label) +
+  ggtitle(paste0("",target_gene," expression vs CNA (",target_region,")"))
+
+
+```
+
+### RB1
+PMCID308AAK no sign reduction in expression but shows fusion and -0.36 CN deletion
+Maybe because RB1 is often deleted/affected?
+
+```{r}
+target_gene_name="RB1"
+
+candidate = filter(uq_fusions_df,grepl(target_gene_name,fusion_name)&somatic_variant&precise_confident)
+candidate %>% select(fusion_name,patient_id,contains("gup_fpkm"),tumor_af_mean,normal_af_mean,svtype,svlen,gup_cytoband,gdw_cytoband)
+
+print(plot_fpkm_log2(gene_expression_analysis,unique(candidate$gup_ensembl_id),candidate$patient_id,target_gene_name))
+
+grouping="primary_group_shorthand_label"
+
+gene_exp_df = filter(gene_expression_analysis,ensembl_id == unique(candidate$gup_ensembl_id)&domain_label=="solid")
+       
+ggplot(gene_exp_df,aes(x=!! sym(grouping),y=fpkm_log)) + geom_boxplot(outlier.size = 0) +
+  geom_jitter(data=filter(gene_exp_df,!patient_id %in% candidate$patient_id),fill="grey",size=2,shape=21,
+              width = 0.1,height=0.1,alpha=0.65) +
+    geom_point(data=filter(gene_exp_df,patient_id %in% candidate$patient_id),fill="red",size=3,shape=21)  +   theme_bw() + theme(axis.text.x = element_text(angle = 60,size = 10,vjust=1, hjust=1)) + xlab("") + ylab("gene expression FPKM (log2)") +
+    ggtitle(paste0(target_gene_name," expression (FPKM log2)"))
+
+```
+
+```{r}
+
+cancer_genes_cnas = read.table(paste0(cna_reports_dir,"cohort.oncotsg_cna_expr.tsv"),sep="\t",header=T)#,stringsAsFactors = T)
+
+cancer_genes_cnas[,c("fpkm_log","fpkm_zscore","fpkm_zscore_domain","copy_ratio_log2_mean")] = lapply(cancer_genes_cnas[,c("fpkm_log","fpkm_zscore","fpkm_zscore_domain","copy_ratio_log2_mean")],function(x) {as.numeric(x)})
+
+target_gene_name="RB1"
+target_ensembl_id = "ENSG00000139687" #candidate$gup_ensembl_id
+
+cna_vs_expression = cancer_genes_cnas %>% filter(ensembl_id==target_ensembl_id)
+
+ggplot(cna_vs_expression,aes(x=copy_ratio_log2_mean,y=fpkm_log)) + geom_point(aes(fill=primary_group_shorthand_label),shape=21,size=2) + 
+  geom_point(data=filter(cna_vs_expression,patient_id %in% candidate$patient_id),shape=2,size=3) + 
+  scale_fill_manual(values=prigroup_colors$color) +
+  facet_wrap(~domain_label) +
+  ggtitle(paste0("",target_gene," expression vs CNA (",target_ensembl_id,")"))
+
+
+ggplot(cna_vs_expression %>% filter(domain_label=="solid"),aes(x=copy_ratio_log2_mean,y=fpkm_log)) + geom_point(aes(fill=primary_group_shorthand_label),shape=21,size=2) + 
+  geom_point(data=filter(cna_vs_expression,patient_id %in% candidate$patient_id),shape=2,size=3) + 
+  scale_fill_manual(values=prigroup_colors$color) +
+  facet_wrap(~domain_label) +
+  ggtitle(paste0("",target_gene," expression vs CNA (",target_gene_name,")"))
+
+
+```
+
+
+MEF2B
+
+```{r}
+
+plot_zscore_dist_domain(gene_expression_analysis,"ENSG00000213999",c("PMCID308AAA"),"MEF2B")
+plot_fpkm_log2(gene_expression_analysis,"ENSG00000213999",c("PMCID308AAA"),"MEF2B")
+
+
+```
+
+### Renal tumor candidates
+```{r}
+
+plot_zscore_dist_domain(gene_expression_analysis,"ENSG00000134323",c("PMCID118AAO"),"MYCN")
+plot_fpkm_log2(gene_expression_analysis,"ENSG00000134323",c("PMCID118AAO"),"MYCN")
+cnas_patient=read.table(paste0(cna_reports_dir,"gene_cna_overlaps.PMCID118AAO_PMABM000HCG.tsv"),header = T,sep="\t")
+cnas_patient %>% filter(gene_name %in% c("MYCN","FBXW7") )
+
+```
+
+### HOXA9
+
+```{r}
+candiate_expression_df = gene_expression_analysis %>% filter(ensembl_id == "ENSG00000078399" & primary_group_shorthand_label=="Leukemias" & fpkm_zscore_group>1)
+candiate_expression_df = candiate_expression_df %>% left_join(patient_labels_lookup,by="patient_id")
+
+plot_zscore_dist_domain(gene_expression_analysis,"ENSG00000078399",c("PMCID453AAA"),"HOXA9")
+p = plot_fpkm_log2(gene_expression_analysis,"ENSG00000078399",c("PMCID453AAA"),"HOXA9")
+
+p +  geom_label_repel(data=filter(candiate_expression_df,patient_id %in% c("PMCID235AAL","PMCID453AAA")),aes(label=patient_label),nudge_y = -0.5,nudge_x=-0.5,min.segment.length = 0.5,alpha=0.75) + geom_point(data=filter(candiate_expression_df, patient_id =="PMCID235AAL"),fill="green",size=3,shape=21) 
+
+
+candiate_expression_df
+#Patient higher = PMCID235AAL
+```
+# Supplementary
+
+
+
+
+## Patient flow diagram 
+
+```{r}
+DiagrammeR::grViz("digraph graph2 {
+
+graph [layout = dot, rankdir = LR]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica,style=rounded]
+a [label = '@@1 \n @@2', y = 0]
+b [label = '@@3']
+c [label = '@@4']
+d [label = '@@5']
+e [label = '@@6']
+f [label = '@@7']
+g [label = '@@8']
+
+subgraph { rank=same; a; c }
+subgraph { rank=same; b; e }
+subgraph { rank=same; f; g }
+a -> {b c }
+b -> {d e }
+d -> {f g }
+
+}
+
+[1]: paste0( uq_patients(patient_metadata), ' patients')
+[2]: paste0( length(unique(filter(patient_metadata,!is.na(tumor_type))$tumor_type)), ' tumor types')
+[3]: paste0( uq_patients(cohort_report), ' pt with WGS fusion ')
+[4]: paste0( uq_patients(filter(patient_metadata, !patient_id %in% cohort_report$patient_id)), ' pt without WGS fusion ')
+[5]: paste0( uq_patients(filter(cohort_report,somatic_variant)), ' pt with 1(+) TSFs')
+[6]: paste0( uq_patients(filter(patient_metadata, !patient_id %in% filter(cohort_report,somatic_variant)$patient_id)), ' pt without TSF')
+[7]: paste0( uq_patients(filter(cohort_report,clinically_validated|clinically_validated_reciprocal)), ' pt with clinically validated fusion')
+[8]: paste0( uq_patients(filter(cohort_report,somatic_variant & !fusion_positive_patient)), ' pt with TSF of unknown significance') 
+")
+
+```
+
+## Fusion detection flow diagram
+
+```{r include=F}
+DiagrammeR::grViz("digraph graph2 {
+
+graph [layout = dot, rankdir = LR]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica]
+a [label = '@@1 \n @@2 \n @@7']
+b [label = '@@3 \n @@4 \n @@8']
+c [label = '@@5 \n @@6 \n @@9']
+
+a -> b -> c
+
+}
+
+[1]: paste0(uq_fusions(fusion_overview), ' predictions')
+[2]: paste0(uq_patients(fusion_overview),' patients')
+[3]: paste0(uq_fusions(cohort_report), ' WGS-supported')
+[4]: paste0(uq_patients(cohort_report),' patients')
+[5]: paste0(uq_fusions(filter(cohort_report,somatic_variant)), ' tumor-specific')
+[6]: paste0(uq_patients(filter(cohort_report,somatic_variant)),' patients ')
+[7]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(predicted_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(predicted_cnt),1)),')')
+[8]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(validated_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(validated_cnt),1)),')')
+[9]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(validated_somatic_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(validated_somatic_cnt),1)),')')
+
+")
+
+ 
+```
+
+
+First on total cohort -> more is ambiguous -> then load uq fusions df
+```{r}
+cohort_report_mock = annotate_variant_class_fractions(cohort_report)
+
+
+```
+
+```{r}
+DiagrammeR::grViz("digraph graph2 {
+
+graph [layout = dot, rankdir = LR]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica]
+a [label = '@@1 \n @@2 \n @@3']
+b [label = '@@4 \n @@5 \n @@6']
+c [label = 'allele frequency']
+d [label = '@@7']
+e [label = '@@8']
+f [label = '@@9']
+g [label = '@@10']
+
+a -> b -> c -> {d e f g}
+
+}
+
+[1]: paste0(uq_fusions(fusion_overview), ' predictions')
+[2]: paste0(uq_patients(fusion_overview),' patients')
+[3]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(predicted_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(predicted_cnt),1)),')')
+[4]: paste0(uq_fusions(cohort_report_mock), ' WGS-supported')
+[5]: paste0(uq_patients(cohort_report_mock),' patients')
+[6]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(validated_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(validated_cnt),1)),')')
+[7]: paste0(uq_fusions(filter(cohort_report_mock,somatic_variant_only)), ' tumor-specific')
+[8]: paste0(uq_fusions(filter(cohort_report_mock,germline_variant_only)), ' germline')
+[9]: paste0(uq_fusions(filter(cohort_report_mock,low_af_only)), ' low AF')
+[10]: paste0(uq_fusions(filter(cohort_report_mock,ambiguous)), ' ambiguous')
+
+")
+       
+
+```
+
+
+Precise confident vs not precise confident
+
+```{r}
+DiagrammeR::grViz("digraph graph2 {
+
+graph [layout = dot, rankdir = LR]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica]
+a [label = '@@1']
+b [label = 'precise & confident']
+c [label = '@@2']
+d [label = '@@3']
+e [label = '@@4']
+f [label = '@@5']
+g [label = '@@6']
+h [label = '@@7']
+i [label = '@@8']
+j [label = '@@9']
+k [label = '@@10']
+l [label = '@@11']
+
+a -> b -> c -> {d e f g}
+b -> h -> {i j k l}
+
+subgraph { rank=same; c; h }
+
+
+}
+
+[1]: paste0(uq_fusions(cohort_report), ' WGS-supported')
+[2]: paste0(nrow(uq_fusions_hc), ' fusions')
+[3]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"somatic\")), ' tumor-specific')
+[4]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"germline\")), ' germline')
+[5]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"low_af\")), ' low AF')
+[6]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"ambiguous\")), ' ambiguous')
+[7]: paste0(uq_fusions(filter(cohort_report,not_precise_confident)), ' fusions')
+[8]: paste0(uq_fusions(filter(cohort_report,not_precise_confident&somatic_variant_only)), ' tumor-specific')
+[9]: paste0(uq_fusions(filter(cohort_report,not_precise_confident&germline_variant_only)), ' germline')
+[10]: paste0(uq_fusions(filter(cohort_report,not_precise_confident&low_af_only )), ' low AF')
+[11]: paste0(uq_fusions(filter(cohort_report,not_precise_confident&ambiguous )), ' ambiguous')
+
+")
+
+
+
+```
+
+
+Supplementary Figure 1: Main flow diagram 
+Healthy chimera and cancer databases not included here because these are overlapping sets so not sure how to indicate that in a flow diagram.
+
+```{r}
+flow <- "digraph graph2 {
+graph [layout = dot, rankdir = TD]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica]
+a [label = '@@1 \n @@2 \n @@3']
+b [label = '@@4 \n @@5 \n @@6']
+l [label = '@@15']
+c [label = '@@14 \n @@16']
+d [label = '@@10']
+f [label = '@@7']
+g [label = '@@8']
+h [label = '@@9']
+i [label = '@@11']
+j [label = '@@12']
+k [label = '@@13']
+m [label = '@@17']
+
+a -> b -> c -> {f g h}
+c -> d
+f -> {i j m}
+g -> k
+b -> l 
+subgraph { rank=same; c; d }
+subgraph { rank=same; b; l }
+
+}
+[1]: paste0(uq_fusions(fusion_overview), ' predictions')
+[2]: paste0(uq_patients(fusion_overview),' patients')
+[3]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(predicted_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(predicted_cnt),1)),')')
+[4]: paste0(uq_fusions(cohort_report), ' WGS-supported')
+[5]: paste0(uq_patients(cohort_report),' patients')
+[6]:  paste0('(med: ', patient_fusion_cnt_table %>% summarise(total = median(validated_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(validated_cnt),1)),')')
+[7]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"somatic\")), ' tumor')
+[8]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"germline\")), ' germline')
+[9]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"low_af\")), ' low AF')
+[10]: paste0(uq_fusions(filter(cohort_report,not_precise_confident)), ' fusions')
+[11]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"somatic\"&(clinically_validated|clinically_validated_reciprocal))), ' clin.rel. & reciprocal')
+[12]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"somatic\"&(anno_has_oncogene|anno_has_tsg)&!(clinically_validated|clinically_validated_reciprocal))), ' onco/TSG')
+[13]: paste0(uq_fusions(filter(cohort_report,precise_confident&germline_variant&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient)), ' onco/TSG')
+[14]: paste0(nrow(uq_fusions_hc), ' high confidence')
+[15]: paste0(uq_patients(filter(fusion_overview, !patient_id %in% cohort_report$patient_id)),' patients')
+[16]: paste0(uq_patients(uq_fusions_hc), ' patients')
+[17]: paste0(nrow(filter(uq_fusions_hc,variant_type==\"somatic\"&!(anno_has_oncogene|anno_has_tsg)&!(clinically_validated|clinically_validated_reciprocal))), ' other')
+
+"
+#pdf("flowchart.pdf")
+DiagrammeR::grViz(flow)
+#dev.off()
+
+paste0('High conf (med: ', patient_fusion_cnt_table %>% summarise(total = median(precise_confident_cnt)),' mean: ',patient_fusion_cnt_table %>% summarise(total = round(mean(precise_confident_cnt),1)),')')
+```
+
+Unique gene pairs
+```{r}
+DiagrammeR::grViz( "digraph graph2 {
+graph [layout = dot, rankdir = TD]
+
+# node definitions with substituted label text
+node [shape = rectangle, fontname = helvetica]
+a [label = '@@1 \n @@2 ']
+b [label = '@@3 \n @@4 ']
+c [label = '@@5 \n @@6 ']
+d [label = '@@7']
+f [label = '@@8']
+g [label = '@@9']
+h [label = '@@10']
+i [label = '@@11']
+j [label = '@@12']
+k [label = '@@13']
+l [label = '@@14']
+m [label = '@@15']
+
+
+a -> b -> c -> {f g h i}
+c -> d
+f -> {j k m}
+b -> l 
+subgraph { rank=same; c; d }
+subgraph { rank=same; b; l }
+
+}
+[1]: paste0(uq_uq_fusions(fusion_overview), ' predicted fusions')
+[2]: paste0(uq_patients(fusion_overview),' patients')
+[3]: paste0(uq_uq_fusions(cohort_report), ' WGS supported fusions')
+[4]: paste0(uq_patients(cohort_report),' patients')
+[5]: paste0(nrow(uq_gene_pairs_hc), ' high confidence fusions')
+[6]: paste0(uq_patients(uq_fusions_hc), ' patients')
+[7]: paste0(uq_uq_fusions(filter(cohort_report,not_precise_confident)), ' low conf fusions')
+[8]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"somatic\")), ' tumor')
+[9]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"germline\")), ' germline')
+[10]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"low_af\")), ' low AF')
+[11]: paste0(nrow(uq_gene_pairs_hc_ambiguous),' ambiguous')
+[12]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"somatic\"&(clinically_validated))), ' clin.rel. & reciprocal')
+[13]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"somatic\"&(anno_has_oncogene|anno_has_tsg)&!(clinically_validated))), ' onco/TSG')
+[14]: paste0(uq_patients(filter(fusion_overview, !patient_id %in% cohort_report$patient_id)),' patients')
+[15]: paste0(nrow(filter(uq_gene_pairs_hc,variant_type==\"somatic\"&!(anno_has_oncogene|anno_has_tsg)&!(clinically_validated))), ' other')
+
+")
+
+```
+
+## Support by multiple tools
+How many tools support one fusion ?
+NB: not all patients have 3 tools
+
+```{r}
+patient_tool_missing_lst = wgs_tool_present_df  %>% filter(!manta_present | !delly_present | !gridss_present) %>% filter(patient_id %in% patient_metadata$patient_id) %>% left_join(patient_metadata[,c("patient_id","patient_label")])
+print(patient_tool_missing_lst)
+
+patient_tool_missing_lst=patient_tool_missing_lst$patient_id
+```
+
+```{r}
+ven <- venndetail(list(Manta = unique(filter(cohort_report,grepl("manta",tools))$patient_fusion), 
+                       Delly = unique(filter(cohort_report,grepl("delly",tools))$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report,grepl("gridss",tools))$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px", main="# gene fusions") 
+```
+
+
+```{r }
+if(FALSE){
+ven <- venndetail(list(Manta = unique(filter(cohort_report,grepl("manta",somatic_tools))$patient_fusion), 
+                       Delly = unique(filter(cohort_report,grepl("delly",somatic_tools))$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report,grepl("gridss",somatic_tools))$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px") 
+}
+```
+
+Classified as tumor-specific by AF overall
+```{r}
+ven <- venndetail(list(Manta = unique(filter(cohort_report,grepl("manta",tools)&somatic_variant)$patient_fusion), 
+                       Delly = unique(filter(cohort_report,grepl("delly",tools)&somatic_variant)$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report,grepl("gridss",tools)&somatic_variant)$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px",main="# tumor-specific fusions") 
+```
+
+
+```{r}
+ven <- venndetail(list(Manta = unique(filter(uq_fusions_hc,grepl("manta",tools))$patient_fusion), 
+                       Delly = unique(filter(uq_fusions_hc,grepl("delly",tools))$patient_fusion),
+                    GRIDSS = unique(filter(uq_fusions_hc,grepl("gridss",tools))$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px", main="# high confidence fusions") 
+```
+
+```{r}
+ven <- venndetail(list(Manta = unique(filter(uq_fusions_hc,grepl("manta",tools)&somatic_variant)$patient_fusion), 
+                       Delly = unique(filter(uq_fusions_hc,grepl("delly",tools)&somatic_variant)$patient_fusion),
+                    GRIDSS = unique(filter(uq_fusions_hc,grepl("gridss",tools)&somatic_variant)$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px", main="# tumor-specific high confidence fusions") 
+```
+
+
+
+### Only patients with all 3 tools
+
+```{r}
+
+ven <- venndetail(list(Manta = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("manta",tools))$patient_fusion), 
+                       Delly = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("delly",tools))$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report ,!patient_id %in% patient_tool_missing_lst & grepl("gridss",tools))$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px") 
+
+```
+
+Detected as somatic by that tool (based on AF)
+```{r}
+if(FALSE){
+ven <- venndetail(list(Manta = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("manta",somatic_tools))$patient_fusion), 
+                       Delly = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("delly",somatic_tools))$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report ,!patient_id %in% patient_tool_missing_lst & grepl("gridss",somatic_tools))$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px") 
+}
+```
+
+Classified as tumor-specific by AF overall
+```{r}
+ven <- venndetail(list(Manta = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("manta",tools)&somatic_variant)$patient_fusion), 
+                       Delly = unique(filter(cohort_report,!patient_id %in% patient_tool_missing_lst & grepl("delly",tools)&somatic_variant)$patient_fusion),
+                    GRIDSS = unique(filter(cohort_report ,!patient_id %in% patient_tool_missing_lst & grepl("gridss",tools)&somatic_variant)$patient_fusion)
+))
+
+plot(ven,type="upset", width="500px") 
+```
+
+
+
+## Tumor-normal AF scatter plot
+
+```{r}
+
+ggplot(uq_fusions_df, aes(x=variant_type,y=tumor_normal_diff_mean)) + geom_boxplot(aes(color=variant_type)) +  theme_bw() 
+
+p = ggplot(uq_fusions_df, aes(x=normal_af_mean,y=tumor_normal_diff_mean)) + geom_point(aes(color=variant_type)) + theme_bw()  + ggtitle("Fusions classified based on allele fraction of underlying SVs") 
+p
+p + geom_vline(xintercept = 0.05) +  geom_hline(yintercept = 0.05) + geom_abline(slope=(1.1))
+
+```
+
+High confidence
+```{r}
+p = ggplot(uq_fusions_hc, aes(x=normal_af_mean,y=tumor_normal_diff_mean)) + geom_point(aes(color=variant_type)) + theme_bw()  + ggtitle("Fusions (hc) classified based on allele fraction of underlying SVs") 
+p
+p + geom_vline(xintercept = 0.05) +  geom_hline(yintercept = 0.05) + geom_abline(slope=(1.1))
+```
+
+For figures: schematic for classification
+```{r}
+p = ggplot(uq_fusions_hc, aes(x=normal_af_mean,y=tumor_af_mean)) + geom_point(aes(color=variant_type),size=3) + theme_bw()  + ggtitle("Fusions (hc) classified based on allele fraction of underlying SVs") + xlab("Normal AF") + ylab("Tumor AF") + labs(color="Variant class") 
+p + theme(legend.title = element_blank())
+p + geom_vline(xintercept = 0.05) +  geom_hline(yintercept = 0.05) + geom_abline(slope=(2.5)) 
+
+q = p + geom_vline(xintercept = 0.05) +  geom_hline(yintercept = 0.05) + geom_abline(slope=(2.5)) + theme(legend.position = c(0.85, 0.25),legend.background = element_rect(fill = "white",color="grey")) 
+q
+q + theme(legend.title = element_blank()) + ggtitle("")
+q + theme(legend.position = "none")+ ggtitle("")
+
+```
+Line based on: (t-n)/n > 1.5 == t/n > 2.5 
+
+
+## Pairwise overlap and distance plots 
+
+High confidence
+```{r}
+ggplot(uq_fusions_hc) + geom_histogram(aes(x=pairwise_distance_max,fill=variant_type),alpha=0.3,color="black") + theme_bw() + scale_y_continuous(trans = "log10")  
+ggplot(uq_fusions_hc) + geom_histogram(aes(x=pairwise_overlap_mean,fill=variant_type),alpha=0.3,color="black") + theme_bw() + scale_x_continuous(trans = "log10")  
+
+```
+
+## CTX and copy number
+
+```{r}
+uq_fusions(uq_fusions_hc %>% filter(svtype=="CTX"))
+hc_fusions_input = uq_fusions_hc %>% filter(svtype=="CTX" & somatic_variant)
+uq_fusions(hc_fusions_input)
+
+ggplot(hc_fusions_input) + geom_density(aes(x=gdw_copy_ratio_l2fc_mean)) + geom_density(aes(x=gup_copy_ratio_l2fc_mean)) 
+
+hc_fusions_input %>% filter(gup_copy_ratio_l2fc_mean > 1 | gdw_copy_ratio_l2fc_mean > 1) %>% select(patient_id,tumor_id,fusion_name,gup_copy_ratio_l2fc_mean,gup_fpkm_zscore_domain,gdw_copy_ratio_l2fc_mean,gdw_fpkm_zscore_domain)
+  
+
+hc_fusions_input %>% filter(gup_copy_ratio_l2fc_mean < (-0.5) | gdw_copy_ratio_l2fc_mean < (-0.5)) %>% select(patient_id,fusion_name,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean)#gup_fpkm_zscore_domain,gdw_fpkm_zscore_domain)
+
+```
+
+Germline CTX is only one
+
+```{r}
+uq_fusions_hc %>% filter(svtype=="CTX" & germline_variant)%>% select(patient_id,fusion_name,gup_copy_ratio_l2fc_mean,gup_fpkm_zscore_domain,gdw_copy_ratio_l2fc_mean,gdw_fpkm_zscore_domain)
+
+```
+
+
+## How can low AF be high confident / CN distribution of variant classes
+```{r}
+ggplot(uq_fusions_hc,aes(y=cnl2fc,x=variant_type,color=variant_type)) + geom_boxplot(show.legend = F) +theme_bw() + ylab("copy number log 2 fold change") + xlab("") 
+```
+

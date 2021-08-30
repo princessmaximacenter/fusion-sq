@@ -1,0 +1,168 @@
+gene	alteration_type
+MYCN	Amplification
+GLI2	Amplification
+ACVR2B	Amplification
+TERT	Amplification
+BRAF	Amplification
+MYC	Amplification
+OTX2	Amplification
+SETBP1	Amplification
+CCNE1	Amplification
+TTYH1	Amplification
+SETD2	Deletion
+CDKN2A	Deletion
+CDKN2B	Deletion
+PTCH1	Deletion
+PAX5	Deletion
+PTEN	Deletion
+SERP2	Deletion
+TP53	Deletion
+IGLL5	Deletion
+SMARCB1	Deletion
+BRAF	Gene-disrupting structural variant
+KIAA1549	Gene-disrupting structural variant
+KMT2A	Gene-disrupting structural variant
+PTPRD	Gene-disrupting structural variant
+SNCAIP	Gene-disrupting structural variant
+RUNX1	Gene-disrupting structural variant
+TERT	Gene-disrupting structural variant
+MYC	Gene-disrupting structural variant
+PVT1	Gene-disrupting structural variant
+PAX5	Gene-disrupting structural variant
+TRAJ29	Gene-disrupting structural variant
+NF1	Gene-disrupting structural variant
+RB1	Gene-disrupting structural variant
+MTAP	Gene-disrupting structural variant
+RUNX1T1	Gene-disrupting structural variant
+SLC6A18	Gene-disrupting structural variant
+BCR	Gene-disrupting structural variant
+IKZF1	Gene-disrupting structural variant
+FAM49A	Gene-disrupting structural variant
+MYH11	Gene-disrupting structural variant
+CBFB	Gene-disrupting structural variant
+C10orf11	Gene-disrupting structural variant
+NTRK2	Gene-disrupting structural variant
+EYS	Gene-disrupting structural variant
+DDX31	Gene-disrupting structural variant
+OTX2-AS1	Gene-disrupting structural variant
+TRDD2	Gene-disrupting structural variant
+CDKN2B-AS1	Gene-disrupting structural variant
+SUZ12	Gene-disrupting structural variant
+GALNTL6	Gene-disrupting structural variant
+TRDD3	Gene-disrupting structural variant
+ATRX	Gene-disrupting structural variant
+MYCNOS	Gene-disrupting structural variant
+PTEN	Gene-disrupting structural variant
+IGHV3-71	Gene-disrupting structural variant
+IGHJ4	Gene-disrupting structural variant
+DDX31	Gene-disrupting structural variant
+RGPD2	Gene-disrupting structural variant
+AGBL4	Gene-disrupting structural variant
+NDE1	Gene-disrupting structural variant
+IKZF2	Gene-disrupting structural variant
+ABL1	Gene-disrupting structural variant
+MEF2C	Gene-disrupting structural variant
+TTYH1	Gene-disrupting structural variant
+AUTS2	Gene-disrupting structural variant
+DLEU1	Gene-disrupting structural variant
+FOXO1	Gene-disrupting structural variant
+IGLV4-69	Gene-disrupting structural variant
+LINC00511	Gene-disrupting structural variant
+XBP1	Gene-disrupting structural variant
+ZFHX3	Gene-disrupting structural variant
+LPAR6	Gene-disrupting structural variant
+JMJD1C	Gene-disrupting structural variant
+DYM	Gene-disrupting structural variant
+ZCCHC7	Gene-disrupting structural variant
+LPHN2	Gene-disrupting structural variant
+GFI1B	Gene-disrupting structural variant
+ADD3	Gene-disrupting structural variant
+BTG1	Gene-disrupting structural variant
+TRDV2	Gene-disrupting structural variant
+HDAC9	Gene-disrupting structural variant
+CROCC	Gene-disrupting structural variant
+USP22	Gene-disrupting structural variant
+GMDS	Gene-disrupting structural variant
+CDK6	Gene-disrupting structural variant
+PIPOX	Gene-disrupting structural variant
+NRXN1	Gene-disrupting structural variant
+ZFPM2	Gene-disrupting structural variant
+SMYD3	Gene-disrupting structural variant
+NPLOC4	Gene-disrupting structural variant
+AADACL4	Mutation
+ACVR1	Mutation
+ALK	Mutation
+ARID1A	Mutation
+ATRX	Mutation
+BCOR	Mutation
+BCORL1	Mutation
+BCR	Mutation
+BPIFB1	Mutation
+BRAF	Mutation
+C10orf112	Mutation
+CARD11	Mutation
+CCND3	Mutation
+COL1A1	Mutation
+CTNNB1	Mutation
+DDX3X	Mutation
+DGCR8	Mutation
+DROSHA	Mutation
+FAT2	Mutation
+FBN2	Mutation
+FBXO11	Mutation
+FBXW7	Mutation
+FGFR1	Mutation
+FLG	Mutation
+FLT3	Mutation
+FMR1	Mutation
+H3F3A	Mutation
+HDAC2	Mutation
+HIST1H3B	Mutation
+ID3	Mutation
+IDH1	Mutation
+KBTBD4	Mutation
+KDM6A	Mutation
+KIT	Mutation
+KMT2C	Mutation
+KMT2D	Mutation
+KRAS	Mutation
+LAPTM4B	Mutation
+MED12	Mutation
+MYC	Mutation
+MYCN	Mutation
+NF1	Mutation
+NOTCH1	Mutation
+NOTCH2	Mutation
+NRAS	Mutation
+P2RY8	Mutation
+PCBP1	Mutation
+PDGFRA	Mutation
+PIK3CA	Mutation
+PTCH1	Mutation
+PTCHD4	Mutation
+PTEN	Mutation
+PTPN11	Mutation
+RB1	Mutation
+RHOA	Mutation
+ROS1	Mutation
+RPL10	Mutation
+SELP	Mutation
+SETD2	Mutation
+SF3B1	Mutation
+SH2B3	Mutation
+SI	Mutation
+SIRPA	Mutation
+SIX1	Mutation
+SMARCA4	Mutation
+SMARCB1	Mutation
+SMG8	Mutation
+SMO	Mutation
+SUFU	Mutation
+TBR1	Mutation
+TCF3	Mutation
+TFAP4	Mutation
+TP53	Mutation
+WDR64	Mutation
+WT1	Mutation
+ZIC1	Mutation
+ZMYM3	Mutation

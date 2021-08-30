@@ -1,0 +1,2 @@
+"patients"	"cancer_supergroups"	"fusion_name"	"svtype"	"svlen"	"variant_type"	"anno_healthy_chimera"	"anno_cancer_chimera"	"anno_has_onco_or_tsg"	"anno_clinically_relevant"	"anno_has_kinase"	"anno_sv_population"	"annotation"	"high_confidence"	"patient_clinrel_fusion"
+"test_patient1"	"solid"	"EML4--NTRK3"	"CTX"		"tumor_specific"	FALSE	TRUE	TRUE	TRUE	TRUE	FALSE	"clinical"	TRUE	TRUE

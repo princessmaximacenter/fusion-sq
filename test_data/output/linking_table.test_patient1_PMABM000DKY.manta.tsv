@@ -1,0 +1,4 @@
+fusion_id	gup_bp_name	gup_normal_af	gup_tumor_af	somatic	svtype	gdw_bp_name	gdw_normal_af	gdw_tumor_af	gup_coordinate	gdw_coordinate	gup_distance	gdw_distance	gup_location	gdw_location	fusion_name
+1	MantaBND:327661:0:1:0:0:0:1	0	0.143603133159269	TRUE	BND	MantaBND:327661:0:1:0:0:0:0	0	0.143603133159269	chr2:42253416-42253418:+	chr15:88117316-88117318:+	7728	84270	intron	intron	EML4--NTRK3
+1	MantaBND:327661:0:1:2:0:0:0	0	0.138539042821159	TRUE	BND	MantaBND:327661:0:1:2:0:0:1	0	0.138539042821159	chr2:42253424:-	chr15:88116891:-	7736	83845	intron	intron	EML4--NTRK3
+3	MantaDEL:560482:0:1:0:0:0_bp1	0.294871794871795	NA	FALSE	DEL	MantaDEL:560482:0:1:0:0:0_bp2	0.294871794871795	NA	chr2:241911101:+	chr2:242093628:-	28465	1258	intron	intron	LINC01237--LINC01881

@@ -1,0 +1,3 @@
+patient_fusion	tumor_af_mean	normal_af_mean	svtype	tools	selected
+test_patient1_EML4--NTRK3	0.183242932189655	0	CTX	delly, gridss, manta	FALSE
+test_patient1_EML4--NTRK3	0.204336647420411	0	CTX	delly, gridss, manta	TRUE

@@ -1,0 +1,19 @@
+patient_id	bp_name	svtype	db_svtype	recip_overlap	db_variant	sv_database
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	DEL	0.907538774568129	nssv15877818, nssv15877816, nssv15877814	nstd166
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	DUP	0.803039308792179	nssv15971634	nstd166
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	DEL	0.907535883221369	nssv15877814, nssv15877818, nssv15877816	nstd166
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	DUP	0.803047610192791	nssv15971634	nstd166
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	DEL	0.907535883221369	nssv15877816, nssv15877814, nssv15877818	nstd166
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	DUP	0.803047610192791	nssv15971634	nstd166
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	DEL	0.864279548417836	nssv16182932, nssv16183431, nssv16200621, nssv16178768, nssv16192523, nssv16205698, nssv16195034	nstd186
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	DEL	0.864290468775241	nssv16178768, nssv16192523, nssv16183431, nssv16182932, nssv16195034, nssv16205698, nssv16200621	nstd186
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	DEL	0.864290468775241	nssv16178768, nssv16183431, nssv16182932, nssv16195034, nssv16192523, nssv16205698, nssv16200621	nstd186
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	DEL	0.816129741052275	dgv7400n54, esv3561320, nsv470533, dgv4200n100, esv3594850, esv2421480, esv2658929, dgv7399n54, dgv7401n54, dgv1402n166, dgv498n27, nsv428411, nsv1152056, dgv7407n54, dgv4203n100, nsv1013958, nsv469780, nsv471619, dgv4206n100, dgv7412n54, esv3594857, dgv167e55	dgv
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	DUP	0.770080558129834	nsv4089941, dgv499n27, esv34605	dgv
+test_patient1	test_patient1_DEL00088322_bp1--DEL00088322_bp2	DEL	other	0.791674870623618	esv21498, esv33229, dgv90e203, dgv7410n54	dgv
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	DEL	0.816123273349337	dgv4200n100, nsv1152056, esv3561320, nsv470533, esv3594850, esv2421480, esv2658929, dgv7399n54, dgv7401n54, dgv1402n166, dgv7400n54, nsv428411, dgv7407n54, dgv4203n100, dgv167e55, nsv1013958, nsv469780, nsv471619, dgv498n27, dgv7412n54, esv3594857, dgv4206n100	dgv
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	DUP	0.770068705201057	nsv4089941, esv34605, dgv499n27	dgv
+test_patient1	test_patient1_MantaDEL:560482:0:1:0:0:0_bp1--MantaDEL:560482:0:1:0:0:0_bp2	DEL	other	0.791640180420165	esv21498, esv33229, dgv90e203, dgv7410n54	dgv
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	DEL	0.816123273349337	dgv4200n100, nsv470533, esv2658929, dgv7399n54, dgv7401n54, dgv1402n166, dgv7400n54, nsv428411, nsv1152056, esv3561320, dgv4203n100, esv3594850, nsv1013958, esv2421480, nsv469780, nsv471619, dgv498n27, dgv7412n54, dgv7407n54, dgv4206n100, dgv167e55, esv3594857	dgv
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	DUP	0.770068705201057	nsv4089941, esv34605, dgv499n27	dgv
+test_patient1	test_patient1_gridss49fb_3679h--gridss49fb_3679o	DEL	other	0.791640180420165	esv21498, dgv90e203, dgv7410n54, esv33229	dgv

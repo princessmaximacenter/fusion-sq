@@ -1,0 +1,4 @@
+fusion_id	gup_bp_name	gup_normal_af	gup_tumor_af	somatic	svtype	gdw_bp_name	gdw_normal_af	gdw_tumor_af	gup_coordinate	gdw_coordinate	gup_distance	gdw_distance	gup_location	gdw_location	fusion_name
+1	BND00402906_bp2	0	0.216	NA	TRA	BND00402906_bp1	0	0.216	chr2:42253420-42253428:-	chr15:88116887-88116895:-	7732	83841	intron	intron	EML4--NTRK3
+1	BND00402907_bp2	0	0.25	NA	TRA	BND00402907_bp1	0	0.25	chr2:42253414-42253422:+	chr15:88117312-88117320:+	7726	84266	intron	intron	EML4--NTRK3
+3	DEL00088322_bp1	0.4	0.434426229508197	NA	DEL	DEL00088322_bp2	0.4	0.434426229508197	chr2:241911110-241911116:+	chr2:242093626-242093632:-	28474	1254	intron	intron	LINC01237--LINC01881
