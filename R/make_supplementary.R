@@ -4,7 +4,7 @@
 ## Last update: 2021-08
 
 ## Output
-# unique fusions and unique gene pairs
+# unique fusions and unique gene pairs (distinct fusions)
 # patient-oriented overview
 # recurrence analyses
 
@@ -39,7 +39,7 @@ uq_gene_pairs_path =  paste0(reports_dir,uq_gene_pairs_outfile)
 
 #manuscript additional files:
 manuscript_table1_path = paste0(reports_dir,"table1_uq_fusions.tsv")
-manuscript_table2_path =   paste0(reports_dir,"table2_uq_gene_pairs.tsv")
+manuscript_table2_path =   paste0(reports_dir,"table2_distinct_fusions_uq_gene_pairs.tsv")
 
 #other for manual checks
 selected_duplicates_hc_path = paste0(reports_dir,"uq_patient_fusions.highconf.selected_duplicates.tsv")
@@ -103,6 +103,7 @@ write.table(selected_duplicates_hc,selected_duplicates_hc_path,quote=F,row.names
 
 
 ## Make unique gene pairs df
+## distinct fusions
 ## for HC from the uq fusions hc (selected fusions), and from all for LC fusions
 ## Flag to distinguish high_confidence=T set  
 uq_gene_pairs_hc = make_uq_gene_pairs(uq_fusions_hc)
@@ -352,6 +353,7 @@ write.table(table1_uq_fusions_export ,manuscript_table1_path,col.names=T,quote=T
 
 
 ### uq gene pairs
+## distinct fusions
 
 #to add label instead of id 
 patient_mapping = table1_uq_fusions %>% group_by(fusion_name) %>%
