@@ -14,83 +14,48 @@
 # patient_identifier = patient_id + _ + rna_id
 # fusion_identifier = patient_identifier + lead number
 
+##Update: 2021-10-06 Made suitable for docker
+#replaced argv$ with settings$ or default variables. 
+#define config upfront so you need to load the config files, 
+# hpc overrides and patient configs prior to loading the script
+# R -e "source (...); run_tool=...; source(run_match_wgs.docker.R)
 
-#set paths for hpc
+if(FALSE){
+## HPC config
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
-
-## HPC config overrides
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
-
-source(paste0(script_dir,"functions.general.R")) 
-source(paste0(script_dir,"functions.match_wgs.R")) 
 source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if needed
-
-## default settings
-early_exit=TRUE
-run_composite=TRUE
 
 #HPC doesnt use argparser but patient specific config instead 
 #patient specific config
-## TODO to run you would specify patient file and settings file / 'settings$tool="" 
 source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
+}
 
+source(paste0(script_dir,"functions.general.R")) 
+source(paste0(script_dir,"functions.match_wgs.R")) 
+if(!exists("get_vcf_filepath")) {
+  #load default file if not exists
+  source(paste0(script_dir,"functions.get_vcf_filepath.R")) ## adjust if needed
+}
 
-##Update: replace all settings$ with settings$ or _path variables. 
-settings = c()
-settings$config = ""
-settings$tool = ""
+if(!exists("settings")) {
+  #Settings is optional
+  settings = c()
+  settings$config = ""
+}
 
-if(patient$patient_id =="" | settings$tool == "") {
-  print("patient$patient_id and settings$tool need to be specified")
+if(patient$patient_id =="" | run_tool == "") {
+  print("patient$patient_id and run_tool need to be specified")
   #quit()
 }
+
 ## Default paths are used in case no path is provided
 settings$matching_intervals = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
 settings$total_intervals = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
 settings$fusion_anno_table = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
   
-settings$vcf_somatic = get_vcf_filepath(patient$tumor_id,settings$tool,somatic=T)
-settings$vcf = get_vcf_filepath(patient$tumor_id,settings$tool,somatic=F)
-
-
-if(FALSE){
-library(argparser, quietly=TRUE)
-
-argp = arg_parser("Match SV breakpoints to fusions for a single patient")
-argp = add_argument(argp, "--patient_identifier", help="Patient identifier corresponding to patient table")
-argp = add_argument(argp, "--tool", help="SV tool (manta/delly/gridss)")
-
-#default FALSE, only true if flag is set
-argp = add_argument(argp, "--no_composite", flag = TRUE, help="Turn off search for composite fusions - requires more resources")
-
-argp = add_argument(argp, "--config", default="", help="Analysis configuration file -optional")
-
-## defaults are filled based on patient ID if not provided
-argp = add_argument(argp, "--vcf", default="", help="VCF output file from Delly/GRIDSS (unfiltered) or the Manta diploid")
-argp = add_argument(argp, "--vcf_somatic", default="", help="VCF somatic output file, Manta only")
-
-argp = add_argument(argp, "--matching_intervals", default="", help="Genomic matching intervals file from base")
-argp = add_argument(argp, "--total_intervals", default="", help="Total genomic intervals file from base")                    
-argp = add_argument(argp, "--fusion_anno_table", default="", help="Fusion annotation table from base")                    
-
-settings = parse_args(argp)
-run_composite=!(settings$no_composite)
-
-
-patient_metadata = read.table(patient_table,sep = "\t", header=T)
-patient_metadata$tumor_label = paste0(patient_metadata$tumor_id,"_WGS")
-patient_metadata$normal_label = paste0(patient_metadata$normal_id,"_WGS")
-
-## subset the patient_metadata
-if(!is.null(settings$patient_identifier) & !is.na(settings$patient_identifier)) {
-  patient = filter(patient_metadata, patient_identifier==settings$patient_identifier)
-} else {
-  print("Need patient identifier")
-  quit()
-}
-
-}
-
+settings$vcf_somatic = get_vcf_filepath(patient$tumor_id,run_tool,somatic=T)
+settings$vcf = get_vcf_filepath(patient$tumor_id,run_tool,somatic=F)
 
 if(file.exists(settings$config)) {
   source(settings$config)
@@ -109,7 +74,7 @@ suppressPackageStartupMessages({
 ### 
 
 print("Match WGS")
-print(paste0("Running: patient: ",patient$patient_identifier," composite: ",run_composite))
+print(paste0("Running: patient: ",patient$patient_identifier," composite: ",run_composite," tool:",run_tool))
 
 
 ## START 
@@ -126,7 +91,7 @@ if(length(Sys.glob(settings$matching_intervals))<1 | length(Sys.glob(settings$to
 
 
 if(settings$vcf=="" ) {#|| settings$vcf_somatic == "") {
-  print(paste0("MISSING ",patient$patient_identifier," ",settings$tool," ",patient$basename," ",(settings$vcf!="")," ",(settings$vcf_somatic!="")))# One or more missing files germline: ",settings$vcf, " somatic: ", settings$vcf_somatic))
+  print(paste0("MISSING ",patient$patient_identifier," ",run_tool," ",patient$basename," ",(settings$vcf!="")," ",(settings$vcf_somatic!="")))# One or more missing files germline: ",settings$vcf, " somatic: ", settings$vcf_somatic))
   quit()
 } 
 
@@ -143,15 +108,15 @@ if(!run_composite){
 
 ## For each tool different function needed to process genomic ranges
 
-if(settings$tool == "manta") {
+if(run_tool == "manta") {
   all_gr = read_manta_sv_vcf(settings$vcf, settings$vcf_somatic)
 }
 
-if(settings$tool == "delly") {
+if(run_tool == "delly") {
   all_gr = read_delly_sv_vcf(settings$vcf)
 }
 
-if(settings$tool =="gridss"){
+if(run_tool =="gridss"){
   all_gr = read_gridss_sv_vcf(settings$vcf)
 }
 
@@ -452,7 +417,7 @@ if(length(all_gr)<1) quit("No breakpoints found")
 
   if(nrow(linking_table)>0) {
   fusion_supporting_gr = all_gr[c(linking_table$gup_bp_name,linking_table$gdw_bp_name)]
-  write.table(fusion_supporting_gr,paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",settings$tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(fusion_supporting_gr,paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",run_tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
 
    #annotate with fusion name to make it clearer
   linking_table = linking_table %>% left_join(fusion_anno_table[,c("identifier","fusion_name")],by=c("fusion_id"="identifier"))
@@ -460,15 +425,15 @@ if(length(all_gr)<1) quit("No breakpoints found")
   
   if(nrow(linking_table_composite)>0) {
   fusion_supporting_gr_composite = all_gr[c(linking_table_composite$gup_bp_name,linking_table_composite$gdw_bp_name)]
-  write.table(fusion_supporting_gr_composite,paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",settings$tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(fusion_supporting_gr_composite,paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",run_tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
   #annotate with fusion name to make it clearer
   linking_table_composite = linking_table_composite %>% left_join(fusion_anno_table[,c("identifier","fusion_name")],by=c("fusion_id"="identifier"))
-  write.table(linking_table_composite,paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",settings$tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(linking_table_composite,paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",run_tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
   
   }
   
   
 
 #linking_table[is.na(linking_table)]=0
-write.table(linking_table,paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",settings$tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
+write.table(linking_table,paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",run_tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
 
