@@ -271,6 +271,10 @@ check_partnered_bp = function(gup_matching_bp,gdw_matching_bp){
     ##remove overlaps
     gup_in_gdw = gup_in_gdw[!names(gup_in_gdw) %in% names(gdw_in_gup)]
     gdw_in_gup = gdw_in_gup[!names(gdw_in_gup) %in% names(gup_in_gdw)]
+
+    gup_in_gdw = gup_in_gdw[names(gup_in_gdw) %in% gdw_in_gup$partner]
+    gdw_in_gup = gdw_in_gup[names(gdw_in_gup) %in% gup_in_gdw$partner]
+   
     
     if(length(gup_in_gdw)>0 & length(gdw_in_gup)>0) {
       return(GRangesList("gup"=gup_in_gdw, "gdw"=gdw_in_gup))

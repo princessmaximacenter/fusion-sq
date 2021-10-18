@@ -31,12 +31,27 @@ source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if ne
 source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
 }
 
+library(stringi)
+
+
 source(paste0(script_dir,"functions.general.R")) 
 source(paste0(script_dir,"functions.match_wgs.R")) 
 if(!exists("get_vcf_filepath")) {
   #load default file if not exists
   source(paste0(script_dir,"functions.get_vcf_filepath.R")) ## adjust if needed
 }
+
+
+
+#order of arguments matters
+map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,'${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,'${patient_basename}'=patient$basename)
+
+manta_dir = stri_replace_all_fixed(manta_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+gridss_dir = stri_replace_all_fixed(gridss_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+delly_dir = stri_replace_all_fixed(delly_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+
 
 if(!exists("settings")) {
   #Settings is optional

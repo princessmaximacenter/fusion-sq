@@ -20,6 +20,21 @@
 # fusion_identifier = patient_identifier + lead number
 
 
+if(FALSE){
+  #set paths for hpc
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
+  
+  ## HPC config overrides
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
+  
+  #HPC doesnt use argparser but patient specific config instead 
+  #patient specific config
+  #source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
+  source("/hpc/pmc_gen/ivanbelzen/structuralvariation/sv_functional_analysis/run/wilms_v2_20210923/wilms_v2_20210923.conf")
+  
+  source("/hpc/pmc_gen/ivanbelzen/structuralvariation/sv_functional_analysis/run/wilms_v2_20210923/wilms_v2_20210923.PMCID418AAA.conf")
+}
+
 suppressPackageStartupMessages({
   library(GenomicRanges, quietly=TRUE)
   library(AnnotationDbi, quietly=TRUE)
@@ -27,20 +42,14 @@ suppressPackageStartupMessages({
   library(tidyverse, quietly=TRUE)
   library(stringr, quietly=TRUE)
   #library(argparser)
+  library(stringi)
+  
 })
 
-#set paths for hpc
-source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
-
-## HPC config overrides
-source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
 
 source(paste0(script_dir,"functions.general.R")) 
 source(paste0(script_dir,"functions.prepare_matching.R")) 
 
-#HPC doesnt use argparser but patient specific config instead 
-#patient specific config
-source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
 
 if(FALSE){
 patient_metadata = read.table(patient_table,sep = "\t", header=T) 
@@ -58,6 +67,20 @@ if(!is.null(argv$patient_identifier) & !is.na(argv$patient_identifier)) {
   quit()
 }
 }
+
+
+#order of arguments matters
+map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,'${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,'${patient_basename}'=patient$basename)
+
+starfusion_dir = stri_replace_all_fixed(starfusion_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+
+fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
+transcript_table_filepath = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
+total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
+
 
 print("Prepare matching intervals")
 print(paste0("Running: patient: ",patient$patient_identifier))
@@ -122,7 +145,6 @@ transcript_df = data.frame(transcript_df)
   }
 
   # Make annotation table from StarFusion file
-  fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
   if(length(Sys.glob(fusion_anno_table_filepath))<1) {
     fusion_anno_table = make_fusion_anno_table(starfusion_file)
     ## Adjust fusion anno columns - from STAR fusion names to names used in pipeline
@@ -136,9 +158,6 @@ transcript_df = data.frame(transcript_df)
   #endof make fusion_anno_table
 
   # From fusion anno table: make matching intervals (consensus) and transcript table with intervals and involved fragments
-  matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-  transcript_table_filepath = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-  total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
   
   if(length(Sys.glob(matching_intervals_filepath))>0) {
     print(paste0("EXIT: ",patient$patient_identifier,": already has matching intervals file (",matching_intervals_filepath,")"))
