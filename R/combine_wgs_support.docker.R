@@ -74,7 +74,7 @@ supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,patient$patient_
 # Load fusion anno table 
 
 ## read table to append to matching bp and allow for summarizing properties but not saved here
-fusion_anno_table=read.table(fusion_anno_table_path,header=T,sep="\t") 
+fusion_anno_table=read.table(fusion_anno_table_path,header=T,sep="\t",stringsAsFactors = F) 
 
 ## Load linking tables and supporting bp from tools
 
@@ -99,21 +99,21 @@ for (tool in c("manta","delly","gridss")) {
   
   supporting_breakpoints_path = paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",tool,".bed")
   if( length(Sys.glob(supporting_breakpoints_path))==0  ) { next() }
-  supporting_bp_tool = read.table(supporting_breakpoints_path,header=T,sep="\t") 
+  supporting_bp_tool = read.table(supporting_breakpoints_path,header=T,sep="\t",stringsAsFactors = F) 
   if(tool!="manta") {  supporting_bp_tool[, c("somatic")]=NA }
   supporting_bps = rbind(supporting_bps,supporting_bp_tool)
   
   ## Composite below:
   supporting_breakpoints_composite_path = paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",tool,".bed")
   if( length(Sys.glob(supporting_breakpoints_composite_path))==0  ) { next() }
-  supporting_bp_composite_tool = read.table(supporting_breakpoints_composite_path,header=T,sep="\t") 
+  supporting_bp_composite_tool = read.table(supporting_breakpoints_composite_path,header=T,sep="\t",stringsAsFactors = F) 
   if(tool!="manta") {  supporting_bp_tool[, c("somatic")]=NA }
   
   supporting_bps = rbind(supporting_bps,supporting_bp_composite_tool)
   
   linking_table_composite_path = paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",tool,".tsv")
   if( length(Sys.glob(linking_table_composite_path))==0  ) { next() }
-  linking_table_composite = read.table(linking_table_composite_path,header=T,sep="\t")
+  linking_table_composite = read.table(linking_table_composite_path,header=T,sep="\t",stringsAsFactors = F)
   
   matching_bps_composite = rbind(matching_bps_composite, as.data.frame(linking_table_composite))
 
@@ -130,7 +130,7 @@ if(nrow(matching_bps)==0) {
 ## Annotate Matching bps 
 
 # annotate with overlap variable
-matching_intervals_table = read.table(matching_intervals_path,header=T, sep="\t")
+matching_intervals_table = read.table(matching_intervals_path,header=T, sep="\t",stringsAsFactors = F)
 matching_bps = matching_bps %>% left_join(matching_intervals_table[,c("identifier","overlap_gup_gdw_adjacent_intron","overlap_gup_gdw_genebody")], by=c("fusion_id"="identifier"))
 
 ## Annotate with fusion properties from SF (Fusion overview)
@@ -152,7 +152,7 @@ matching_bps = matching_bps %>% left_join( fusion_anno_table[, c("identifier",
 # Dont consider as criteria factors like AF or bp distance 
 # transcript_type can also be retained intron or lnc or ... dont filter on protein coding
 
-transcript_table =  read.table(transcript_table_path,header=T,sep="\t") %>%dplyr::rename(fusion_id = identifier)
+transcript_table =  read.table(transcript_table_path,header=T,sep="\t",stringsAsFactors = F) %>%dplyr::rename(fusion_id = identifier)
 transcript_table = transcript_table %>% filter(exon_boundary & !is.na(adjacent_intron)) 
 
 #temporary identifier
@@ -284,7 +284,7 @@ if(nrow(matching_bps)==0) {
   supporting_bps = supporting_bps %>% filter(bp_name %in% matching_bps_sv_anno$gup_bp_name | bp_name %in% matching_bps_sv_anno$gdw_bp_name)
   supporting_bps[supporting_bps$tool!="manta",c("somatic")] = NA
   supporting_bps = unique(supporting_bps)
-  supporting_bps[,c("svtype","bp_name","partner")]=endoapply(supporting_bps[,c("svtype","bp_name","partner")],as.character)
+  supporting_bps[,c("svtype","bp_name","partner","tool")]=endoapply(supporting_bps[,c("svtype","bp_name","partner","tool")],as.character)
   supporting_bp_gr = df_to_gr(supporting_bps)
   supporting_bp_gr$svtype = get_svtype(supporting_bp_gr)
   
