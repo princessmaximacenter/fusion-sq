@@ -44,6 +44,10 @@ if(!exists("get_vcf_path")) {
   source(paste0(script_dir,"functions.get_vcf_path.R")) ## adjust if needed
 }
 
+if(!exists("analysis_type")) {
+  analysis_type="starfusion"
+}
+
 
 ## Input
 
@@ -55,6 +59,7 @@ gridss_dir = stri_replace_all_fixed(gridss_dir_template,names(map_template_vars)
 delly_dir = stri_replace_all_fixed(delly_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+
 
 
 if(!exists("settings")) {
@@ -70,7 +75,7 @@ if(patient$patient_id =="" | run_tool == "") {
 
 ## Default paths are used in case no path is provided
 #TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusion_catcher"){
+if(analysis_type=="fusioncatcher"){
   
   #input
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")

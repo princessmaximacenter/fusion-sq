@@ -44,6 +44,12 @@ if(patient$patient_id =="") {
   #quit()
 }
 
+
+if(!exists("analysis_type")) {
+  analysis_type="starfusion"
+}
+
+
 #order of arguments matters
 map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,'${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,'${patient_basename}'=patient$basename)
 

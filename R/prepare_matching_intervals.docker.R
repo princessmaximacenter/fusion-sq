@@ -94,7 +94,7 @@ base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), ma
 analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
 #TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusion_catcher"){
+if(analysis_type=="fusioncatcher"){
   fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   transcript_table_filepath = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
@@ -148,7 +148,7 @@ transcript_df = data.frame(transcript_df)
 
 ## Make fusion anno table
 
-if(analysis_type=="fusion_catcher"){
+if(analysis_type=="fusioncatcher"){
   
   fc_file = Sys.glob(paste0(fusioncatcher_dir,patient$rna_id,fusioncatcher_file_ext))
   if(length(fc_file)<1) { 
