@@ -20,11 +20,14 @@
 # hpc overrides and patient configs prior to loading the script
 # R -e "source (...); run_tool=...; source(run_match_wgs.docker.R)
 
+##Update 2022-01-03: refactor to allow for  analysis_type="fusioncatcher"
+
+
 if(FALSE){
 ## HPC config
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
-source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if needed
+source(paste0(script_dir,"functions.get_vcf_path.docker.R")) ## adjust if needed
 
 #HPC doesnt use argparser but patient specific config instead 
 #patient specific config
@@ -36,12 +39,13 @@ library(stringi)
 
 source(paste0(script_dir,"functions.general.R")) 
 source(paste0(script_dir,"functions.match_wgs.R")) 
-if(!exists("get_vcf_filepath")) {
+if(!exists("get_vcf_path")) {
   #load default file if not exists
-  source(paste0(script_dir,"functions.get_vcf_filepath.R")) ## adjust if needed
+  source(paste0(script_dir,"functions.get_vcf_path.R")) ## adjust if needed
 }
 
 
+## Input
 
 #order of arguments matters
 map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,'${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,'${patient_basename}'=patient$basename)
@@ -65,16 +69,46 @@ if(patient$patient_id =="" | run_tool == "") {
 }
 
 ## Default paths are used in case no path is provided
-settings$matching_intervals = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-settings$total_intervals = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
-settings$fusion_anno_table = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+#TODO: also include star fusion in file names, this is for backwards compatibility
+if(analysis_type=="fusion_catcher"){
   
-settings$vcf_somatic = get_vcf_filepath(patient$tumor_id,run_tool,somatic=T)
-settings$vcf = get_vcf_filepath(patient$tumor_id,run_tool,somatic=F)
+  #input
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".bed")
+  
+  #output
+  supporting_breakpoints_path = paste0(analysis_dir,supporting_breakpoints_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".bed")
+  supporting_breakpoints_composite_path=paste0(analysis_dir,supporting_breakpoints_composite_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".bed")
+  linking_table_path=paste0(analysis_dir,linking_table_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".tsv")
+  linking_table_composite_path=paste0(analysis_dir,linking_table_composite_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".tsv")
+  
+} else {
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
+  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
+  
+  supporting_breakpoints_path = paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",run_tool,".bed")
+  supporting_breakpoints_composite_path=paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",run_tool,".bed")
+  linking_table_path=paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",run_tool,".tsv")
+  linking_table_composite_path=paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",run_tool,".tsv")
+  
+}
+
+
+settings$matching_intervals = matching_intervals_path
+settings$total_intervals = total_intervals_path
+settings$fusion_anno_table = fusion_anno_table_path
+  
+settings$vcf_somatic = get_vcf_path(patient$tumor_id,run_tool,somatic=T)
+settings$vcf = get_vcf_path(patient$tumor_id,run_tool,somatic=F)
 
 if(file.exists(settings$config)) {
   source(settings$config)
 }
+
 
 ##
 suppressPackageStartupMessages({
@@ -432,7 +466,7 @@ if(length(all_gr)<1) quit("No breakpoints found")
 
   if(nrow(linking_table)>0) {
   fusion_supporting_gr = all_gr[c(linking_table$gup_bp_name,linking_table$gdw_bp_name)]
-  write.table(fusion_supporting_gr,paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",run_tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(fusion_supporting_gr,supporting_breakpoints_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
    #annotate with fusion name to make it clearer
   linking_table = linking_table %>% left_join(fusion_anno_table[,c("identifier","fusion_name")],by=c("fusion_id"="identifier"))
@@ -440,15 +474,15 @@ if(length(all_gr)<1) quit("No breakpoints found")
   
   if(nrow(linking_table_composite)>0) {
   fusion_supporting_gr_composite = all_gr[c(linking_table_composite$gup_bp_name,linking_table_composite$gdw_bp_name)]
-  write.table(fusion_supporting_gr_composite,paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",run_tool,".bed"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(fusion_supporting_gr_composite,supporting_breakpoints_composite_path,quote = FALSE,sep = "\t",row.names=FALSE)
   #annotate with fusion name to make it clearer
   linking_table_composite = linking_table_composite %>% left_join(fusion_anno_table[,c("identifier","fusion_name")],by=c("fusion_id"="identifier"))
-  write.table(linking_table_composite,paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",run_tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(linking_table_composite,linking_table_composite_path,quote = FALSE,sep = "\t",row.names=FALSE)
   
   }
   
   
 
 #linking_table[is.na(linking_table)]=0
-write.table(linking_table,paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",run_tool,".tsv"),quote = FALSE,sep = "\t",row.names=FALSE)
+write.table(linking_table,linking_table_path,quote = FALSE,sep = "\t",row.names=FALSE)
 

@@ -19,19 +19,16 @@
 # patient_identifier = patient_id + _ + rna_id
 # fusion_identifier = patient_identifier + lead number
 
+#Update 2021-12-30: refactor to allow for  analysis_type="fusioncatcher"
+
 
 if(FALSE){
   #set paths for hpc
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
-  
   ## HPC config overrides
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
-  
   #HPC doesnt use argparser but patient specific config instead 
-  #patient specific config
-  #source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
   source("/hpc/pmc_gen/ivanbelzen/structuralvariation/sv_functional_analysis/run/wilms_v2_20210923/wilms_v2_20210923.conf")
-  
   source("/hpc/pmc_gen/ivanbelzen/structuralvariation/sv_functional_analysis/run/wilms_v2_20210923/wilms_v2_20210923.PMCID418AAA.conf")
 }
 
@@ -58,7 +55,10 @@ patient_metadata = read.table(patient_table,sep = "\t", header=T)
 
 argp = arg_parser("Prepare matching intervals")
 argp = add_argument(argp, "--patient_identifier", help="Patient identifier corresponding to patient table")
+argp = add_argument(argp, "--analysis_type", help="Analysis type starfusion (default) or fusioncatcher",default = "starfusion")
 argv = parse_args(argp)
+
+#test data: argv$patient_identifier="test_patient1_PMABM000DKY"
 
 if(!is.null(argv$patient_identifier) & !is.na(argv$patient_identifier)) {
   patient = dplyr::filter(patient_metadata, patient_identifier==argv$patient_identifier)
@@ -66,6 +66,21 @@ if(!is.null(argv$patient_identifier) & !is.na(argv$patient_identifier)) {
   print("Need patient identifier")
   quit()
 }
+
+if(!is.null(argv$analysis_type)){
+  analysis_type=argv$analysis_type
+} else {
+  analysis_type="starfusion"
+  #for local tests 
+  #analysis_type="fusioncatcher"
+}
+
+
+}
+
+
+if(!exists("analysis_type")) {
+  analysis_type="starfusion"
 }
 
 
@@ -73,14 +88,24 @@ if(!is.null(argv$patient_identifier) & !is.na(argv$patient_identifier)) {
 map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,'${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,'${patient_basename}'=patient$basename)
 
 starfusion_dir = stri_replace_all_fixed(starfusion_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+fusioncatcher_dir = stri_replace_all_fixed(fusioncatcher_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+
 base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
-fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-transcript_table_filepath = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
+#TODO: also include star fusion in file names, this is for backwards compatibility
+if(analysis_type=="fusion_catcher"){
+  fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  transcript_table_filepath = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".bed")
 
+} else {
+  fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+  matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
+  transcript_table_filepath = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
+  total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
+}
 
 print("Prepare matching intervals")
 print(paste0("Running: patient: ",patient$patient_identifier))
@@ -106,7 +131,7 @@ if(length(Sys.glob(txdb_path))<1) {
 gtf <- rtracklayer::import(gtf_path)
 genes = gtf[gtf$type=="gene"]
 genes = data.frame(genes) #annotation 
-#genes$gene_id = remove_version_from_id(genes$gene_id) #optional; turned off to prevent version mismatch
+genes$ensembl_id = remove_version_from_id(genes$gene_id) #for fusion catcher
 gr_genes = GRanges(genes)
 
 exons = exonsBy(txdb, "tx", use.names=TRUE) 
@@ -121,8 +146,28 @@ transcript_df = data.frame(transcript_df)
 ## END reference loading
 
 
-##START
+## Make fusion anno table
 
+if(analysis_type=="fusion_catcher"){
+  
+  fc_file = Sys.glob(paste0(fusioncatcher_dir,patient$rna_id,fusioncatcher_file_ext))
+  if(length(fc_file)<1) { 
+    print(paste0("EXIT: ",patient$patient_identifier,": missing fusion catcher file"))
+    quit()
+  }
+  
+  # Make annotation table from FusionCatcher file
+  
+  if(length(Sys.glob(fusion_anno_table_filepath))<1) {
+    fusion_anno_table = make_fusion_anno_table_fc(fc_file)
+    write.table(fusion_anno_table,fusion_anno_table_filepath,row.names = FALSE, sep="\t",quote=FALSE)
+    
+  } else {
+    fusion_anno_table = read.table(fusion_anno_table_filepath,header = T, sep="\t")
+  }
+  
+} else if(analysis_type=="starfusion") {
+  
   sf_files = Sys.glob(paste0(starfusion_dir,patient$rna_id,"*.tsv"))
   
   #changed this because sometimes not more available
@@ -155,7 +200,9 @@ transcript_df = data.frame(transcript_df)
   } else {
     fusion_anno_table = read.table(fusion_anno_table_filepath,header = T, sep="\t")
   }
-  #endof make fusion_anno_table
+}
+
+#endof make fusion_anno_table
 
   # From fusion anno table: make matching intervals (consensus) and transcript table with intervals and involved fragments
   

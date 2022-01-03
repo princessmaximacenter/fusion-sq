@@ -12,6 +12,8 @@
 ## Fusion-level summary from matching bps data
 ## Remove overlapping gene body
 
+##Update 2022-01-03: refactor to allow for  analysis_type="fusioncatcher"
+
 if(FALSE){
   #set paths for hpc
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
@@ -50,21 +52,92 @@ analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_v
 #need analysis dir for linking tables
 reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
+
+
+## Settings: columns for merging different outputs together
+#analyse underlying svs
+matching_bps_sv_range_cols = c("gup_bp_name","gdw_bp_name","fusion_id","fusion_name","gup_location","gdw_location")
+
+## sv metadata columns which are kept 
+#partner field contains both after range making
+supporting_sv_metadata_cols =  c("sourceId",  "svtype", "svLen", "partner","FILTER",
+                                 "insLen",  "tumor_af", "normal_af",  "somatic", "tool")
+
+# use matching bps for gene id gene type etc gup location      properties that belong to the fusion prediction
+matching_bps_reporting_cols = c("fusion_id","fusion_name",
+                                "gup_bp_name", "gdw_bp_name",
+                                "gup_location","gdw_location","overlap_gup_gdw_genebody","specific_sv", 
+                                "gup_ensembl_id","gdw_ensembl_id",
+                                "gup_gene_type","gdw_gene_type")
+
+# supporting sv properties 
+supporting_sv_fusion_cols = c("svtype", "svLen", "tumor_af", "normal_af", "tool",
+                              "sv_merged", "sv_merged_coordinate", "sv_name","coordinate")
+
+#add gene properties, same regardless of fusion tool
+fusion_anno_table_gene_cols =  c("identifier","gup_ensembl_id","gdw_ensembl_id", "gup_gene_type","gdw_gene_type")
+
+## fusion properties
+fusion_property_cols_generic = c("identifier","gup_gene_id","gdw_gene_id","gup_sf_breakpoint","gdw_sf_breakpoint")
+#for star fusion
+fusion_property_cols_starfusion_only = c("FFPM","gup_sf_transcript","gdw_sf_transcript","predicted_frame")
+#for fusion catcher 
+fusion_property_cols_fusioncatcher_only = c("Counts_of_common_mapping_reads","Spanning_pairs","Spanning_unique_reads","Fusion_finding_method",
+                                            "gup_sf_exon_id","gdw_sf_exon_id","predicted_effect")
+
+#to summarize over fusion-sv pair
+fusion_level_svs_group_cols= c("fusion_name","gup_sv_merged","gdw_sv_merged","gup_sv_merged_coordinate","gdw_sv_merged_coordinate","specific_sv")
+
+## Default paths are used in case no path is provided
+#TODO: also include star fusion in file names, this is for backwards compatibility
+if(analysis_type=="fusion_catcher"){
+  
+  #input
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+
+  supporting_breakpoints_path_template=paste0(analysis_dir,supporting_breakpoints_outfile,analysis_type,".",patient$patient_identifier,".${run_tool}.bed")
+  supporting_breakpoints_composite_path_template=paste0(analysis_dir,supporting_breakpoints_composite_outfile,analysis_type,".",patient$patient_identifier,".${run_tool}.bed")
+  
+  linking_table_path_template=paste0(analysis_dir,linking_table_outfile,analysis_type,".",patient$patient_identifier,".${run_tool}.tsv")
+  linking_table_composite_path_template=paste0(analysis_dir,linking_table_composite_outfile,analysis_type,".",patient$patient_identifier,".${run_tool}.tsv")
+  
+  #output
+  fusion_level_results_path = paste0(reports_dir,fusion_level_results_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  matching_bp_path = paste0(reports_dir,matching_results_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  fusion_tx_selection_path = paste0(reports_dir,fusion_tx_selection_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  pairwise_overlap_merged_path = paste0(reports_dir,pairwise_overlap_merged_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+
+  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_fusioncatcher_only)
+  
+} else {
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
+  
+  supporting_breakpoints_path_template=paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".${run_tool}.bed")
+  supporting_breakpoints_composite_path_template=paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".${run_tool}.bed")
+  
+  linking_table_path_template=paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".${run_tool}.tsv")
+  linking_table_composite_path_template=paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".${run_tool}.tsv")
+  
+  fusion_level_results_path = paste0(reports_dir,fusion_level_results_outfile,patient$patient_identifier,".tsv")
+  matching_bp_path = paste0(reports_dir,matching_results_outfile,patient$patient_identifier,".tsv")
+  fusion_tx_selection_path = paste0(reports_dir,fusion_tx_selection_outfile,patient$patient_identifier,".tsv")
+  pairwise_overlap_merged_path = paste0(reports_dir,pairwise_overlap_merged_outfile,patient$patient_identifier,".tsv")
+  supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,patient$patient_identifier,".tsv")
+
+  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_starfusion_only)
+  
+}
+
+
 print("Combine WGS support")
 print(paste0("Running: patient: ",patient$patient_identifier))
 
 
-## INPUT
-fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-
-## OUTPUT
-fusion_level_results_path = paste0(reports_dir,fusion_level_results_outfile,patient$patient_identifier,".tsv")
-matching_bp_path = paste0(reports_dir,matching_results_outfile,patient$patient_identifier,".tsv")
-fusion_tx_selection_path = paste0(reports_dir,fusion_tx_selection_outfile,patient$patient_identifier,".tsv")
-pairwise_overlap_merged_path = paste0(reports_dir,pairwise_overlap_merged_outfile,patient$patient_identifier,".tsv")
-supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,patient$patient_identifier,".tsv")
 
 ## Prevent overwriting
 #if(length(Sys.glob(fusion_level_results_path)==1)){ next()}
@@ -85,7 +158,15 @@ matching_bps_composite= data.frame(stringsAsFactors=FALSE)
 supporting_bps = data.frame(stringsAsFactors=FALSE)
 
 for (tool in c("manta","delly","gridss")) {
-  linking_table_path = paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",tool,".tsv")
+  map_template_vars_tool=c('${run_tool}'=tool)
+
+  linking_table_path = stri_replace_all_fixed(linking_table_path_template,names(map_template_vars_tool), map_template_vars_tool,vectorize=F)
+  linking_table_composite_path = stri_replace_all_fixed(linking_table_composite_path_template,names(map_template_vars_tool), map_template_vars_tool,vectorize=F)
+  
+  supporting_breakpoints_path = stri_replace_all_fixed(supporting_breakpoints_path_template,names(map_template_vars_tool), map_template_vars_tool,vectorize=F)
+  supporting_breakpoints_composite_path = stri_replace_all_fixed(supporting_breakpoints_composite_path_template,names(map_template_vars_tool), map_template_vars_tool,vectorize=F)
+  
+
   if( length(Sys.glob(linking_table_path))<1 ) {
     next()
   } else if (file.size(linking_table_path)<5 ) { 
@@ -97,21 +178,18 @@ for (tool in c("manta","delly","gridss")) {
   linking_table$tool = tool    
   matching_bps = rbind(matching_bps, as.data.frame(linking_table))
   
-  supporting_breakpoints_path = paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",tool,".bed")
   if( length(Sys.glob(supporting_breakpoints_path))==0  ) { next() }
   supporting_bp_tool = read.table(supporting_breakpoints_path,header=T,sep="\t",stringsAsFactors = F) 
   if(tool!="manta") {  supporting_bp_tool[, c("somatic")]=NA }
   supporting_bps = rbind(supporting_bps,supporting_bp_tool)
   
   ## Composite below:
-  supporting_breakpoints_composite_path = paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",tool,".bed")
   if( length(Sys.glob(supporting_breakpoints_composite_path))==0  ) { next() }
   supporting_bp_composite_tool = read.table(supporting_breakpoints_composite_path,header=T,sep="\t",stringsAsFactors = F) 
   if(tool!="manta") {  supporting_bp_tool[, c("somatic")]=NA }
   
   supporting_bps = rbind(supporting_bps,supporting_bp_composite_tool)
   
-  linking_table_composite_path = paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",tool,".tsv")
   if( length(Sys.glob(linking_table_composite_path))==0  ) { next() }
   linking_table_composite = read.table(linking_table_composite_path,header=T,sep="\t",stringsAsFactors = F)
   
@@ -134,9 +212,7 @@ matching_intervals_table = read.table(matching_intervals_path,header=T, sep="\t"
 matching_bps = matching_bps %>% left_join(matching_intervals_table[,c("identifier","overlap_gup_gdw_adjacent_intron","overlap_gup_gdw_genebody")], by=c("fusion_id"="identifier"))
 
 ## Annotate with fusion properties from SF (Fusion overview)
-matching_bps = matching_bps %>% left_join( fusion_anno_table[, c("identifier",
-                                                                 "gup_ensembl_id","gdw_ensembl_id",
-                                                                 "gup_gene_type","gdw_gene_type")],
+matching_bps = matching_bps %>% left_join( fusion_anno_table[, fusion_anno_table_gene_cols],
                                            by=c("fusion_id"="identifier")) 
 
 
@@ -268,8 +344,7 @@ if(nrow(matching_bps)==0) {
 #4) Group by merge ID to know which variants are the same between tools
   
   
-  matching_bps_sv_range_cols = c("gup_bp_name","gdw_bp_name","fusion_id","fusion_name","gup_location","gdw_location")
-
+  
   #Store properties for annotation of SVs later
   ## Add composite df which contains the partners, matching wgs only does composite if nothing else is found
   if(nrow(matching_bps_composite)>0){
@@ -292,11 +367,6 @@ if(nrow(matching_bps)==0) {
   ## Partner ranges are defined based on min start/ max end of bp and its partner. 
   ## Ignore unpartnered and interchromosomal events -> return unchanged
 
-  ## metadata columns which are kept 
-  #partner field contains both after range making
-  
-  supporting_sv_metadata_cols =  c("sourceId",  "svtype", "svLen", "partner","FILTER",
-                                          "insLen",  "tumor_af", "normal_af",  "somatic", "tool")
   supporting_svs = GRanges()
   for(gr_id in names(supporting_bp_gr)){
     supporting_bp_target = supporting_bp_gr[gr_id]
@@ -401,18 +471,6 @@ if(nrow(matching_bps)==0) {
   # use supporting sv properties (sv type, AF, somatic/germline/low
   # use matching bps for gene id gene type etc gup location     
   
-  #properties that belong to the fusion prediction
-  matching_bps_reporting_cols = c("fusion_id","fusion_name",
-                                  "gup_bp_name", "gdw_bp_name",# "gup_distance", "gdw_distance",
-                                  "gup_location","gdw_location","overlap_gup_gdw_genebody","specific_sv", 
-                                  "gup_ensembl_id","gdw_ensembl_id",
-                                  "gup_gene_type","gdw_gene_type")
-                                                
-  
-  supporting_sv_fusion_cols = c("svtype", "svLen", "tumor_af", "normal_af", "tool",
-                                   "sv_merged", "sv_merged_coordinate", "sv_name","coordinate")
-  
-  
   ## SV length
   ## Note: Manta and GRIDSS have  negative svLen for deletions, Delly not. Also Delly can have svlen for CTX? => set to 0 explicitly 
   supporting_svs_df[supporting_svs_df$svtype=="CTX",c("svLen")]=NA
@@ -420,8 +478,7 @@ if(nrow(matching_bps)==0) {
   
   ## harmonize and merge composite if exists
   if(nrow(matching_bps_composite)>0){
-    matching_bps_composite =  matching_bps_composite %>% left_join( fusion_anno_table[, c("identifier","gup_ensembl_id","gdw_ensembl_id",
-                                                                "gup_gene_type","gdw_gene_type")],
+    matching_bps_composite =  matching_bps_composite %>% left_join( fusion_anno_table[, fusion_anno_table_gene_cols],
                                                             by=c("fusion_id"="identifier")) 
     matching_bps_composite[,names(matching_bps)[!names(matching_bps) %in% names(matching_bps_composite)]]=NA
     matching_bps_composite$specific_sv = FALSE
@@ -434,12 +491,9 @@ if(nrow(matching_bps)==0) {
   #remove columns better filled with SV properties
   matching_bps2 = matching_bps2[,matching_bps_reporting_cols]
   
-  ## Annotate with fusion properties from SF (Fusion overview)
-  matching_bps2 = matching_bps2 %>% left_join( fusion_anno_table[, c("identifier","FFPM",
-                                                                     "gup_gene_id","gdw_gene_id",
-                                                                     "gup_sf_breakpoint","gdw_sf_breakpoint",
-                                                                     "gup_sf_transcript","gdw_sf_transcript",
-                                                                     "predicted_frame")],
+  
+  ## Annotate with fusion properties 
+  matching_bps2 = matching_bps2 %>% left_join( fusion_anno_table[, fusion_anno_table_fusion_property_cols],
                                                by=c("fusion_id"="identifier")) 
   
   ## Merge with supporting svs
@@ -469,14 +523,12 @@ if(nrow(matching_bps)==0) {
   ## merge tumor gup/gdw normal gup/gdw AF, tools, sv type, sv length
   ## merging takes care of grouping so do not explicitly merge first per tool anymore. 
 
-fusion_level_svs = matching_bps2 %>% group_by(fusion_name,gup_sv_merged,gdw_sv_merged,gup_sv_merged_coordinate,gdw_sv_merged_coordinate,specific_sv) %>% 
+fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
   summarize(gup_sf_breakpoint = toString(unique(sort(gup_sf_breakpoint))), gdw_sf_breakpoint = toString(unique(sort(gdw_sf_breakpoint))),
-            gup_sf_transcript = toString(unique(sort(gup_sf_transcript))),gdw_sf_transcript = toString(unique(sort(gdw_sf_transcript))),
             gup_gene_id = toString(unique(gup_gene_id)), gdw_gene_id = toString(unique(gdw_gene_id)),
             gup_gene_type = toString(unique(gup_gene_type)), gdw_gene_type = toString(unique(gdw_gene_type)),
             gup_ensembl_id=unique(gup_ensembl_id),gdw_ensembl_id=unique(gdw_ensembl_id),
-            ffpm_mean=mean(FFPM), ffpm_max=max(FFPM),
-            predicted_frame = toString(sort(unique(predicted_frame))),
+
             fusion_predictions = toString(unique(sort(fusion_id))),
             gup_location=toString(unique(sort(gup_location))), gdw_location=toString(unique(sort(gdw_location))),
             overlap_gup_gdw_genebody = any(overlap_gup_gdw_genebody),
@@ -493,13 +545,9 @@ fusion_level_svs = matching_bps2 %>% group_by(fusion_name,gup_sv_merged,gdw_sv_m
             gup_gdw_sv_distance_mean = mean(gup_gdw_sv_distance,na.rm=T),
             gup_distance_mean = mean(gup_distance,na.rm=T), gdw_distance_mean = mean(gdw_distance,na.rm=T),
             
-            .groups="keep") %>% ungroup() 
+            .groups="keep") %>% ungroup() %>% as.data.frame()
 
-  
-  fusion_level_svs$predicted_frame = trimws(gsub(pattern = "., ", replacement = "",gsub(pattern = ", .", replacement = "", 
-                                                                                        fusion_level_svs$predicted_frame,fixed = T),fixed = T))
-  
-  
+
   #rename tumor/normal_af_mean afterwards but needed for  annotate somatic/germline/low_af
   ## if after mean still NAs then only NAs present, replace to prevent NAs with variant classification
   fusion_level_svs[is.na(fusion_level_svs$tumor_af),c("tumor_af")]=0
@@ -507,17 +555,55 @@ fusion_level_svs = matching_bps2 %>% group_by(fusion_name,gup_sv_merged,gdw_sv_m
   
   fusion_level_svs = annotate_variant_af_class(fusion_level_svs)
   
-  fusion_level_svs = fusion_level_svs %>%dplyr::rename(tumor_af_mean = tumor_af, normal_af_mean = normal_af)
+  fusion_level_svs = fusion_level_svs %>% dplyr::rename(tumor_af_mean = tumor_af, normal_af_mean = normal_af)
   
   ## Annotate as precise and confident
   fusion_level_svs = fusion_level_svs %>% mutate(location_precise = (gup_location %in% proximate_bp & gdw_location %in% proximate_bp) )
   
   #location and keep all other columns
-  cohort_tools = fusion_level_svs %>% group_by(fusion_name) %>% summarize(tools_any_wgs = toString(unique(sort(tools))))
+  cohort_tools = fusion_level_svs %>% group_by(fusion_name) %>% summarize(tools_any_wgs = toString(unique(sort(tools)))) %>% as.data.frame()
   fusion_level_svs = fusion_level_svs %>% left_join(cohort_tools)
   fusion_level_svs = fusion_level_svs %>% mutate(precise_confident = location_precise&grepl(",",tools))
   fusion_level_svs = fusion_level_svs %>% mutate(not_precise_confident = !fusion_name %in% filter(fusion_level_svs,precise_confident)$fusion_name)
 
+  
+  #tool specific properties
+  if(analysis_type=="fusion_catcher"){
+  #  fusion_property_cols_fusioncatcher_only = c("Counts_of_common_mapping_reads","Spanning_pairs","Spanning_unique_reads","Fusion_finding_method",
+  #                                              "gup_sf_exon_id","gdw_sf_exon_id","predicted_effect")
+    fusion_level_svs_fusioncatcher_only = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
+      summarize(
+        spanning_pairs_mean=mean(Spanning_pairs), spanning_pairs_max=max(Spanning_pairs),
+        spanning_uq_reads_mean=mean(Spanning_unique_reads), spanning_uq_reads_max=max(Spanning_unique_reads),
+        common_reads_mean=mean(Counts_of_common_mapping_reads), common_reads_max=max(Counts_of_common_mapping_reads),
+        
+        predicted_effect = toString(sort(unique(predicted_effect))),
+        fusion_finding_method  = toString(sort(unique(Fusion_finding_method))),
+        gup_sf_exon_id = toString(unique(sort(gup_sf_exon_id))),gdw_sf_exon_id = toString(unique(sort(gdw_sf_exon_id))),
+        .groups="keep") %>% ungroup() %>% as.data.frame()
+    
+    fusion_level_svs=fusion_level_svs %>% left_join(fusion_level_svs_fusioncatcher_only,by=fusion_level_svs_group_cols)
+    
+  } else {
+    #fusion_property_cols_starfusion_only = c("FFPM","gup_sf_transcript","gdw_sf_transcript","predicted_frame")
+
+    fusion_level_svs_starfusion_only = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
+      summarize(
+        ffpm_mean=mean(FFPM), ffpm_max=max(FFPM),
+        predicted_frame = toString(sort(unique(predicted_frame))),
+        gup_sf_transcript = toString(unique(sort(gup_sf_transcript))),gdw_sf_transcript = toString(unique(sort(gdw_sf_transcript))),
+        .groups="keep") %>% ungroup() %>% as.data.frame()
+    
+    
+    fusion_level_svs_starfusion_only$predicted_frame = trimws(gsub(pattern = "., ", replacement = "",gsub(pattern = ", .", replacement = "", 
+                                                                                                          fusion_level_svs_starfusion_only$predicted_frame,fixed = T),fixed = T))
+    
+
+    fusion_level_svs=fusion_level_svs %>% left_join(fusion_level_svs_starfusion_only,by=fusion_level_svs_group_cols)
+    
+  } 
+  
+  
 write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
   
 write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
