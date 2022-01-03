@@ -27,7 +27,7 @@ if(FALSE){
 ## HPC config
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
 source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
-source(paste0(script_dir,"functions.get_vcf_path.docker.R")) ## adjust if needed
+source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if needed
 
 #HPC doesnt use argparser but patient specific config instead 
 #patient specific config
@@ -39,9 +39,9 @@ library(stringi)
 
 source(paste0(script_dir,"functions.general.R")) 
 source(paste0(script_dir,"functions.match_wgs.R")) 
-if(!exists("get_vcf_path")) {
+if(!exists("get_vcf_filepath")) {
   #load default file if not exists
-  source(paste0(script_dir,"functions.get_vcf_path.R")) ## adjust if needed
+  source(paste0(script_dir,"functions.get_vcf_filepath.R")) ## adjust if needed
 }
 
 if(!exists("analysis_type")) {
@@ -107,8 +107,8 @@ settings$matching_intervals = matching_intervals_path
 settings$total_intervals = total_intervals_path
 settings$fusion_anno_table = fusion_anno_table_path
   
-settings$vcf_somatic = get_vcf_path(patient$tumor_id,run_tool,somatic=T)
-settings$vcf = get_vcf_path(patient$tumor_id,run_tool,somatic=F)
+settings$vcf_somatic = get_vcf_filepath(patient$tumor_id,run_tool,somatic=T)
+settings$vcf = get_vcf_filepath(patient$tumor_id,run_tool,somatic=F)
 
 if(file.exists(settings$config)) {
   source(settings$config)
