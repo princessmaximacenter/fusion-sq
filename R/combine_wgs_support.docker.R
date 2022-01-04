@@ -96,7 +96,7 @@ fusion_level_svs_group_cols= c("fusion_name","gup_sv_merged","gdw_sv_merged","gu
 
 ## Default paths are used in case no path is provided
 #TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusion_catcher"){
+if(analysis_type=="fusioncatcher"){
   
   #input
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
@@ -574,7 +574,7 @@ fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_gro
 
   
   #tool specific properties
-  if(analysis_type=="fusion_catcher"){
+  if(analysis_type=="fusioncatcher"){
   #  fusion_property_cols_fusioncatcher_only = c("Counts_of_common_mapping_reads","Spanning_pairs","Spanning_unique_reads","Fusion_finding_method",
   #                                              "gup_sf_exon_id","gdw_sf_exon_id","predicted_effect")
     fusion_level_svs_fusioncatcher_only = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
