@@ -99,7 +99,7 @@ make_fusion_anno_table_fc = function(fc_file) {
   fusion_anno_table$gdw_sf_breakpoint = paste0("chr",fusion_anno_table$gdw_sf_breakpoint)
   
   #add identifiers
-  fusion_anno_table$fusion_name = paste0(fusion_anno_table$gup_gene_id,"_",fusion_anno_table$gdw_gene_id)
+  fusion_anno_table$fusion_name = paste0(fusion_anno_table$gup_gene_id,"--",fusion_anno_table$gdw_gene_id)
   fusion_anno_table$fusion_identifier = paste0(patient$patient_identifier,"_",fusion_anno_table$identifier)
   fusion_anno_table$patient_identifier = patient$patient_identifier
   

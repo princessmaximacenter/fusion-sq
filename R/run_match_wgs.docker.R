@@ -25,13 +25,16 @@
 
 if(FALSE){
 ## HPC config
-source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
-source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/hpc.default.conf")
-source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if needed
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf") 
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.docker.conf")
+  
+  source(paste0(script_dir,"functions.get_vcf_filepath.docker.R")) ## adjust if needed
 
-#HPC doesnt use argparser but patient specific config instead 
-#patient specific config
-source("/hpc/pmc_gen/ivanbelzen/case_studies/PMCID467AAP/PMCID467AAP.conf")
+
+ #HPC doesnt use argparser but patient specific config instead 
+ source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.conf")
+ source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID144AAK.conf")
+
 }
 
 library(stringi)
