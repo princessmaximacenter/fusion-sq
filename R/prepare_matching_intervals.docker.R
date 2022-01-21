@@ -21,7 +21,27 @@
 
 #Update 2021-12-30: refactor to allow for  analysis_type="fusioncatcher"
 
-
+if(FALSE) {
+  #local
+  source("~/fusion_sq/R/default.conf")
+  source("~/fusion_sq/R/default.docker.local.conf")
+  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+  
+  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID561AAL.conf
+  patient = c()
+  patient$patient_id = "PMCID561AAL"
+  patient$tumor_id = "PMABM000ESN"
+  patient$normal_id = "PMABM000ERX"
+  patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
+  patient$tumor_label = paste0(patient$tumor_id,"_WGS")
+  patient$normal_label = paste0(patient$normal_id,"_WGS")
+  patient$rna_id="PMABM000ESO"
+  patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
+  
+  analysis_type="fusioncatcher"
+  fusioncatcher_dir_template="~/data/fusioncatcher/"
+  
+}
 if(FALSE){
   #set paths for hpc
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
@@ -48,37 +68,6 @@ source(paste0(script_dir,"functions.general.R"))
 source(paste0(script_dir,"functions.prepare_matching.R")) 
 
 
-if(FALSE){
-patient_metadata = read.table(patient_table,sep = "\t", header=T) 
-
-## One patient mode 
-
-argp = arg_parser("Prepare matching intervals")
-argp = add_argument(argp, "--patient_identifier", help="Patient identifier corresponding to patient table")
-argp = add_argument(argp, "--analysis_type", help="Analysis type starfusion (default) or fusioncatcher",default = "starfusion")
-argv = parse_args(argp)
-
-#test data: argv$patient_identifier="test_patient1_PMABM000DKY"
-
-if(!is.null(argv$patient_identifier) & !is.na(argv$patient_identifier)) {
-  patient = dplyr::filter(patient_metadata, patient_identifier==argv$patient_identifier)
-} else {
-  print("Need patient identifier")
-  quit()
-}
-
-if(!is.null(argv$analysis_type)){
-  analysis_type=argv$analysis_type
-} else {
-  analysis_type="starfusion"
-  #for local tests 
-  #analysis_type="fusioncatcher"
-}
-
-
-}
-
-
 if(!exists("analysis_type")) {
   analysis_type="starfusion"
 }
@@ -95,16 +84,16 @@ analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_v
 
 #TODO: also include star fusion in file names, this is for backwards compatibility
 if(analysis_type=="fusioncatcher"){
-  fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
-  matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
-  transcript_table_filepath = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
-  total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".bed")
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
+  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".bed")
 
 } else {
-  fusion_anno_table_filepath = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-  matching_intervals_filepath = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-  transcript_table_filepath = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-  total_intervals_filepath = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
+  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
+  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
+  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
+  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
 }
 
 print("Prepare matching intervals")
@@ -132,7 +121,8 @@ gtf <- rtracklayer::import(gtf_path)
 genes = gtf[gtf$type=="gene"]
 genes = data.frame(genes) #annotation 
 genes$ensembl_id = remove_version_from_id(genes$gene_id) #for fusion catcher
-gr_genes = GRanges(genes)
+genes = genes[!grepl("_PAR_Y",genes$gene_id),]
+gr_genes = GRanges(genes) #used in match ensembl gene
 
 exons = exonsBy(txdb, "tx", use.names=TRUE) 
 introns = intronsByTranscript(txdb, use.names=TRUE) 
@@ -158,12 +148,12 @@ if(analysis_type=="fusioncatcher"){
   
   # Make annotation table from FusionCatcher file
   
-  if(length(Sys.glob(fusion_anno_table_filepath))<1) {
-    fusion_anno_table = make_fusion_anno_table_fc(fc_file)
-    write.table(fusion_anno_table,fusion_anno_table_filepath,row.names = FALSE, sep="\t",quote=FALSE)
+  if(length(Sys.glob(fusion_anno_table_path))<1) {
+    fusion_anno_table = make_fusion_anno_table_fc(fc_file,genes,patient)
+    write.table(fusion_anno_table,fusion_anno_table_path,row.names = FALSE, sep="\t",quote=FALSE)
     
   } else {
-    fusion_anno_table = read.table(fusion_anno_table_filepath,header = T, sep="\t")
+    fusion_anno_table = read.table(fusion_anno_table_path,header = T, sep="\t")
   }
   
 } else if(analysis_type=="starfusion") {
@@ -190,15 +180,15 @@ if(analysis_type=="fusioncatcher"){
   }
 
   # Make annotation table from StarFusion file
-  if(length(Sys.glob(fusion_anno_table_filepath))<1) {
+  if(length(Sys.glob(fusion_anno_table_path))<1) {
     fusion_anno_table = make_fusion_anno_table(starfusion_file)
     ## Adjust fusion anno columns - from STAR fusion names to names used in pipeline
     fusion_anno_table =  rename_fusion_anno_columns(fusion_anno_table)
   
-    write.table(fusion_anno_table,fusion_anno_table_filepath,row.names = FALSE, sep="\t",quote=FALSE)
+    write.table(fusion_anno_table,fusion_anno_table_path,row.names = FALSE, sep="\t",quote=FALSE)
   
   } else {
-    fusion_anno_table = read.table(fusion_anno_table_filepath,header = T, sep="\t")
+    fusion_anno_table = read.table(fusion_anno_table_path,header = T, sep="\t")
   }
 }
 
@@ -206,8 +196,8 @@ if(analysis_type=="fusioncatcher"){
 
   # From fusion anno table: make matching intervals (consensus) and transcript table with intervals and involved fragments
   
-  if(length(Sys.glob(matching_intervals_filepath))>0) {
-    print(paste0("EXIT: ",patient$patient_identifier,": already has matching intervals file (",matching_intervals_filepath,")"))
+  if(length(Sys.glob(matching_intervals_path))>0) {
+    print(paste0("EXIT: ",patient$patient_identifier,": already has matching intervals file (",matching_intervals_path,")"))
     #quit()
   }
   
@@ -216,7 +206,12 @@ if(analysis_type=="fusioncatcher"){
   total_intervals = GRanges()
   matching_intervals_table = data.frame(stringsAsFactors=FALSE)
   transcript_table = data.frame(stringsAsFactors=FALSE)
-    
+  
+  if(nrow(fusion_anno_table[duplicated(fusion_anno_table$identifier),])>1) {
+    print("WARNING: multiple entries for 1 fusion identifier. Duplicated rows:")
+    print(fusion_anno_table[duplicated(fusion_anno_table$identifier),])
+  }  
+  
   for(i in 1:nrow(fusion_anno_table)){
     fusion = fusion_anno_table[i,]
     
@@ -289,9 +284,9 @@ if(analysis_type=="fusioncatcher"){
   total_intervals = GenomicRanges::resize(total_intervals,width(total_intervals)+1000,fix="center")
   total_intervals = total_intervals[!seqnames(total_intervals)=="chrM"]
 
-  write.table(matching_intervals_table,matching_intervals_filepath,row.names = FALSE, sep="\t",quote=FALSE)
-  write.table(transcript_table,transcript_table_filepath,row.names = FALSE, sep="\t",quote=FALSE)
-  write.table(total_intervals,total_intervals_filepath,row.names = FALSE, sep="\t",quote=FALSE)
+  write.table(matching_intervals_table,matching_intervals_path,row.names = FALSE, sep="\t",quote=FALSE)
+  write.table(transcript_table,transcript_table_path,row.names = FALSE, sep="\t",quote=FALSE)
+  write.table(total_intervals,total_intervals_path,row.names = FALSE, sep="\t",quote=FALSE)
   
   ##endof making matching intervals, transcript tables
   

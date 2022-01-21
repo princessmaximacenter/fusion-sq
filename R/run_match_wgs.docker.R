@@ -22,6 +22,28 @@
 
 ##Update 2022-01-03: refactor to allow for  analysis_type="fusioncatcher"
 
+if(FALSE) {
+  #local
+  
+  source("~/fusion_sq/R/default.conf")
+  source("~/fusion_sq/R/default.docker.local.conf")
+  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+  
+  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID172AAM.conf 
+  patient = c()
+  patient$patient_id = "PMCID172AAM"
+  patient$tumor_id = "PMABM000FBI"
+  patient$normal_id = "PMABM000FBS"
+  patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
+  patient$tumor_label = paste0(patient$tumor_id,"_WGS")
+  patient$normal_label = paste0(patient$normal_id,"_WGS")
+  patient$rna_id="PMABM000FBJ"
+  patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
+  
+  analysis_type="fusioncatcher"
+  
+}
+
 
 if(FALSE){
 ## HPC config
@@ -204,7 +226,7 @@ if(length(all_gr)<1) quit("No breakpoints found")
     additional_bp_entry = c()
     
     #matching intervals strings to GRanges
-    intervals = lapply(matching_intervals_table[fusion_id,intervals_lst], 
+    intervals = lapply(matching_intervals_table[matching_intervals_table$identifier==fusion_id,intervals_lst], 
                  function(x) { if(x!="") GRanges(str_split(x,", ")[[1]]) else GRanges() })
   
     #find breakpoints in intervals

@@ -161,6 +161,13 @@ annotate_variant_class_fractions = function(cohort_report) {
 # used for high confidence fusions SV typing
 
 annotate_labels_cancer_common = function(df) { 
+  required_cols =  c("anno_sv_population","anno_healthy_chimera","anno_cancer_chimera","anno_cancer_gene_db")
+  if(length(required_cols[required_cols %in% names(df)]) != length(required_cols)) {
+    print(paste0("WARNING: Missing columns necessary for annotation label: ", required_cols[!required_cols %in% names(df)]))
+    return(df)
+    
+  }
+  
   df$annotation = ""
   df$annotation = as.character(df$annotation)
   df = df %>% mutate(annotation = ifelse( ((anno_sv_population|anno_healthy_chimera) &

@@ -13,7 +13,28 @@
 ## Remove overlapping gene body
 
 ##Update 2022-01-03: refactor to allow for  analysis_type="fusioncatcher"
-
+if(FALSE) {
+  
+  #local
+  
+  source("~/fusion_sq/R/default.conf")
+  source("~/fusion_sq/R/default.docker.local.conf")
+  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+  
+  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID203AAL.conf 
+  patient = c()
+  patient$patient_id = "PMCID203AAL"
+  patient$tumor_id = "PMABM000HAS"
+  patient$normal_id = "PMABM000HBB"
+  patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
+  patient$tumor_label = paste0(patient$tumor_id,"_WGS")
+  patient$normal_label = paste0(patient$normal_id,"_WGS")
+  patient$rna_id="PMABM000HAT"
+  patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
+  
+  analysis_type="fusioncatcher"
+  
+}
 if(FALSE){
   #set paths for hpc
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
@@ -397,13 +418,61 @@ if(nrow(matching_bps)==0) {
   
   # Find Same SVs
   ## which of the SVs overlap >50% and make a merged/reduced SV 
+  
+  ## UPDATE annotation moved here because I need the fusion name, also add to  full supporting_svs_df later
+  ## Aim: get fusion name and predictions per SV (bp pair)
+  ## First fusion name per bp /side
+  matching_bp_long = matching_bps_sv_anno %>%
+    gather(key = "bp_name_orient",value="bp_name",-fusion_id,-fusion_name,-gup_location,-gdw_location)  
+  
+  ## map sv range => bp name. Join with bpname level annotation and summarize
+  ## group by sv name, so both partner halves come together again, 
+  ## Also works if no merged ranges found
+  ## note, not yet for location
+  map_sv_range_anno = map_sv_range_bp_name %>% left_join(matching_bp_long,by="bp_name") %>% group_by(sv_name) %>%
+    summarize(fusion_name = toString(sort(unique(fusion_name))), fusion_predictions = toString(sort(unique(fusion_id))))
+  
+  svs_metadata= as.data.frame(mcols(supporting_svs_ranges))
+  svs_metadata$sv_name = rownames(svs_metadata)
+  mcols(supporting_svs_ranges) = svs_metadata %>% left_join(map_sv_range_anno[,c("sv_name","fusion_name")], by=c("sv_name"))
+  
 
+  
+  ## Update 2022-01: merge per fusion so that the output is independant of the total SVs found for all candidates
+  ## SV merged need to be unique: added fusion name
+  #maybe better solution with the sv_names so that they are comparible more easily between the RNA tools
+  # try  md5() for hash
+  
+  overlap_merged = data.frame()
+  for(i in unique(supporting_svs_ranges$fusion_name)) {
+    overlap_merged_entry = find_same_sv(supporting_svs_ranges[supporting_svs_ranges$fusion_name==i],
+                                        supporting_svs_ranges[supporting_svs_ranges$fusion_name==i],
+                                        reciprocal_overlap = 0.5,svtype_matching = T,ignore_strand = F)
+    overlap_merged_entry$fusion_name = i
+    overlap_merged = rbind(overlap_merged,overlap_merged_entry)
+    
+  }
+  
+  overlap_merged$sv_merged = paste0(overlap_merged$sv_merged,"_",overlap_merged$fusion_name)
+  
+  library(openssl)
+  map_merged_to_sv_names = overlap_merged %>% group_by(sv_merged) %>% 
+    summarize(sv_names = toString(unique(sort(c(set1)))),
+              sv_merged_hash= paste0("merged_",md5(sv_names)))
+  overlap_merged = overlap_merged %>% left_join(map_merged_to_sv_names[,c("sv_merged","sv_merged_hash")],by="sv_merged")
+  
+  
+  overlap_merged = overlap_merged %>% dplyr::rename(sv_merged_fusion = sv_merged, sv_merged = sv_merged_hash)
+  
+  ## end of update 
+  
+  
   #returns pairwise overlaps between SVs and the sv merged they have in common
   # also contains sv merged coordinate and the overlap fractions between each with merged and with eachother
   ## NB: currently not using the merged SV itself in this pipeline, but the identifier to group similar/same SV events
-  overlap_merged = find_same_sv(supporting_svs_ranges,
-                                supporting_svs_ranges,
-                                reciprocal_overlap = 0.5,svtype_matching = T,ignore_strand = F)
+  #overlap_merged = find_same_sv(supporting_svs_ranges,
+  #                              supporting_svs_ranges,
+  #                              reciprocal_overlap = 0.5,svtype_matching = T,ignore_strand = F)
   ##If a range is by itsef and has no overlap => automatically added back because we take the supporting_svs_df as base
   ## so it is NOT in the overlap_merged set => if sv_merged  == NA then set to bp_name and overlap_merged_bp == keep NA 
   
@@ -449,17 +518,6 @@ if(nrow(matching_bps)==0) {
   
   ## Add annotation to SVs 
   
-  ## Aim: get fusion name and predictions per SV (bp pair)
-  ## First fusion name per bp /side
-  matching_bp_long = matching_bps_sv_anno %>%
-    gather(key = "bp_name_orient",value="bp_name",-fusion_id,-fusion_name,-gup_location,-gdw_location)  
-    
-  ## map sv range => bp name. Join with bpname level annotation and summarize
-  ## group by sv name, so both partner halves come together again, 
-  ## Also works if no merged ranges found
-  ## note, not yet for location
-  map_sv_range_anno = map_sv_range_bp_name %>% left_join(matching_bp_long,by="bp_name") %>% group_by(sv_name) %>%
-    summarize(fusion_name = toString(sort(unique(fusion_name))), fusion_predictions = toString(sort(unique(fusion_id))))
   
   #add the 'sv name' also explicitly
   supporting_svs_df$sv_name=supporting_svs_df$bp_name
@@ -613,4 +671,30 @@ fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_gro
 write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
   
 write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
+
+
+## TODO test if it worked => Looks like it did!
+if(FALSE) {
+fusion_level_svs$patient_id=patient$patient_id
+fusion_level_svs = fusion_level_svs %>% 
+  mutate(patient_fusion =  paste(patient_id,fusion_name,sep="_"),
+         patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"),
+         patient_sv_id =  paste(patient_id,gup_sv_merged,gdw_sv_merged,sep="_"))
+sv_merged_names_map = fusion_level_svs %>% select(patient_sv_id,sv_names,patient_fusion) %>% unique()
+
+same_sv_merged_multi_names = sv_merged_names_map  %>%
+  group_by(patient_sv_id) %>% 
+  summarize(sv_names_cnt = length(unique(sv_names)),
+            sv_names_lst = toString(paste0(" ; ",sv_names)),
+            fusion_cnt = length(unique(patient_fusion)),
+            fusion_lst = toString(unique(sort(patient_fusion)))) %>%
+  filter(sv_names_cnt>1)
+
+same_sv_merged_multi_names
+
+## TODO check it it would change results => compare to backup file
+
+
+}
+
 

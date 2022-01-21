@@ -78,8 +78,8 @@ make_fusion_anno_table = function(starfusion_file) {
   return(fusion_anno_table)
 }
 
-make_fusion_anno_table_fc = function(fc_file) {
-  #needs global variable genes and patient
+make_fusion_anno_table_fc = function(fc_file,genes,patient) {
+  #needs  genes and patient
   
   fusion_anno_table = read.table(fc_file,header=T,sep="\t",stringsAsFactors = F)
   colnames = gsub("\\.", "", names(fusion_anno_table))
@@ -190,6 +190,8 @@ make_transcript_table = function(partner_gene,upstream=TRUE){
   # ensembl id with version: gene_match$gene_id
   tx_lst = transcripts[grep(gene_match$gene_id,names(transcripts)),]
   tx_lst = tx_lst@unlistData$tx_name
+  if(length(tx_lst)==0)
+    return(data.frame())
   
   tx_introns= introns[names(introns) %in% tx_lst,]
   tx_exons= exons[names(exons) %in% tx_lst,]
