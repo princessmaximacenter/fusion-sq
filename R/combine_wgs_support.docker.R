@@ -117,9 +117,7 @@ fusion_property_cols_fusioncatcher_only = c("Counts_of_common_mapping_reads","Sp
 fusion_level_svs_group_cols= c("fusion_name","gup_sv_merged","gdw_sv_merged","gup_sv_merged_coordinate","gdw_sv_merged_coordinate","specific_sv")
 
 ## Default paths are used in case no path is provided
-#TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusioncatcher"){
-  
+
   #input
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
@@ -138,33 +136,12 @@ if(analysis_type=="fusioncatcher"){
   pairwise_overlap_merged_path = paste0(reports_dir,pairwise_overlap_merged_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,analysis_type,".",patient$patient_identifier,".tsv")
 
-  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_fusioncatcher_only)
-  
-} else {
-  
-  output_dir="~/PycharmProjects/wdl_pipeline/fusion_pilot/fusion_sq_grape/"
-  base_dir = paste0(output_dir,"base_20201109/")
-  analysis_dir = paste0(output_dir,"matching_results_20201110/")
-  reports_dir=paste0(output_dir,"reports_20210411/")
-  
-  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-  
-  supporting_breakpoints_path_template=paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".${run_tool}.bed")
-  supporting_breakpoints_composite_path_template=paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".${run_tool}.bed")
-  
-  linking_table_path_template=paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".${run_tool}.tsv")
-  linking_table_composite_path_template=paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".${run_tool}.tsv")
-  
-  fusion_level_results_path = paste0(reports_dir,fusion_level_results_outfile,patient$patient_identifier,".tsv")
-  matching_bp_path = paste0(reports_dir,matching_results_outfile,patient$patient_identifier,".tsv")
-  fusion_tx_selection_path = paste0(reports_dir,fusion_tx_selection_outfile,patient$patient_identifier,".tsv")
-  pairwise_overlap_merged_path = paste0(reports_dir,pairwise_overlap_merged_outfile,patient$patient_identifier,".tsv")
-  supporting_svs_path = paste0(reports_dir,supporting_svs_outfile,patient$patient_identifier,".tsv")
 
-  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_starfusion_only)
   
+if(analysis_type=="fusioncatcher"){
+  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_fusioncatcher_only)
+} else {
+  fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_starfusion_only)
 }
 
 

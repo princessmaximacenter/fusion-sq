@@ -99,9 +99,7 @@ if(patient$patient_id =="" | run_tool == "") {
 }
 
 ## Default paths are used in case no path is provided
-#TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusioncatcher"){
-  
+
   #input
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
@@ -113,20 +111,7 @@ if(analysis_type=="fusioncatcher"){
   supporting_breakpoints_composite_path=paste0(analysis_dir,supporting_breakpoints_composite_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".bed")
   linking_table_path=paste0(analysis_dir,linking_table_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".tsv")
   linking_table_composite_path=paste0(analysis_dir,linking_table_composite_outfile,analysis_type,".",patient$patient_identifier,".",run_tool,".tsv")
-  
-} else {
-  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
-  
-  supporting_breakpoints_path = paste0(analysis_dir,supporting_breakpoints_outfile,patient$patient_identifier,".",run_tool,".bed")
-  supporting_breakpoints_composite_path=paste0(analysis_dir,supporting_breakpoints_composite_outfile,patient$patient_identifier,".",run_tool,".bed")
-  linking_table_path=paste0(analysis_dir,linking_table_outfile,patient$patient_identifier,".",run_tool,".tsv")
-  linking_table_composite_path=paste0(analysis_dir,linking_table_composite_outfile,patient$patient_identifier,".",run_tool,".tsv")
-  
-}
-
+ 
 
 settings$matching_intervals = matching_intervals_path
 settings$total_intervals = total_intervals_path

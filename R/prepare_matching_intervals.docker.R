@@ -83,18 +83,11 @@ base_dir = stri_replace_all_fixed(base_dir_template,names(map_template_vars), ma
 analysis_dir = stri_replace_all_fixed(analysis_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
 #TODO: also include star fusion in file names, this is for backwards compatibility
-if(analysis_type=="fusioncatcher"){
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   matching_intervals_path = paste0(base_dir,matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   transcript_table_path = paste0(base_dir,transcript_table_outfile,analysis_type,".",patient$patient_identifier,".tsv")
   total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,analysis_type,".",patient$patient_identifier,".bed")
 
-} else {
-  fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
-  matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
-  transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
-  total_intervals_path = paste0(base_dir,total_matching_intervals_outfile,patient$patient_identifier,".bed")
-}
 
 print("Prepare matching intervals")
 print(paste0("Running: patient: ",patient$patient_identifier))
