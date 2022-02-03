@@ -10,12 +10,12 @@ rename_fusion_anno_columns = function(fusion_anno_table) {
   ## add these columns to also keep versioned 
   
   fusion_anno_table = fusion_anno_table %>% 
-    rename(predicted_frame=PROT_FUSION_TYPE) %>%
-    rename(gup_sf_breakpoint = LeftBreakpoint, gdw_sf_breakpoint=RightBreakpoint) %>% 
-    rename(gup_sf_transcript = CDS_LEFT_ID, gdw_sf_transcript = CDS_RIGHT_ID) %>%
-    rename(gup_gene_id = left_gene_id) %>% rename(gdw_gene_id = right_gene_id) %>% 
-    rename(gup_ensembl_version = left_ensembl_id) %>% rename(gdw_ensembl_version = right_ensembl_id) %>% 
-    rename(gup_gene_type = left_gene_type) %>% rename(gdw_gene_type = right_gene_type)
+    dplyr::rename(predicted_frame=PROT_FUSION_TYPE) %>%
+    dplyr::rename(gup_sf_breakpoint = LeftBreakpoint, gdw_sf_breakpoint=RightBreakpoint) %>% 
+    dplyr::rename(gup_sf_transcript = CDS_LEFT_ID, gdw_sf_transcript = CDS_RIGHT_ID) %>%
+    dplyr::rename(gup_gene_id = left_gene_id) %>% dplyr::rename(gdw_gene_id = right_gene_id) %>% 
+    dplyr::rename(gup_ensembl_version = left_ensembl_id) %>% dplyr::rename(gdw_ensembl_version = right_ensembl_id) %>% 
+    dplyr::rename(gup_gene_type = left_gene_type) %>% dplyr::rename(gdw_gene_type = right_gene_type)
   
 
 return(fusion_anno_table)

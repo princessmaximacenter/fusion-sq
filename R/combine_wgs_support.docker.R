@@ -33,6 +33,7 @@ if(FALSE) {
   patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
   
   analysis_type="fusioncatcher"
+  analysis_type="starfusion"
   
 }
 if(FALSE){
@@ -81,7 +82,7 @@ reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_va
 
 
 
-## Settings: columns for merging different outputs together
+## Settings: columns for merging different outputs together ----
 #analyse underlying svs
 matching_bps_sv_range_cols = c("gup_bp_name","gdw_bp_name","fusion_id","fusion_name","gup_location","gdw_location")
 
@@ -140,6 +141,12 @@ if(analysis_type=="fusioncatcher"){
   fusion_anno_table_fusion_property_cols = c(fusion_property_cols_generic,fusion_property_cols_fusioncatcher_only)
   
 } else {
+  
+  output_dir="~/PycharmProjects/wdl_pipeline/fusion_pilot/fusion_sq_grape/"
+  base_dir = paste0(output_dir,"base_20201109/")
+  analysis_dir = paste0(output_dir,"matching_results_20201110/")
+  reports_dir=paste0(output_dir,"reports_20210411/")
+  
   fusion_anno_table_path = paste0(base_dir,fusion_annotation_outfile,patient$patient_identifier,".tsv")
   matching_intervals_path = paste0(base_dir,matching_intervals_outfile,patient$patient_identifier,".tsv")
   transcript_table_path = paste0(base_dir,transcript_table_outfile,patient$patient_identifier,".tsv")
@@ -170,12 +177,16 @@ print(paste0("Running: patient: ",patient$patient_identifier))
 #if(length(Sys.glob(fusion_level_results_path)==1)){ next()}
 
 
-## Matching bps dataframe ##
+## Matching bps dataframe ----
 # Load fusion anno table 
 
 ## read table to append to matching bp and allow for summarizing properties but not saved here
 fusion_anno_table=read.table(fusion_anno_table_path,header=T,sep="\t",stringsAsFactors = F) 
 
+## TMP code only for the old starfusion
+if("left_ensembl_id" %in% names(fusion_anno_table) & analysis_type=="starfusion"){
+fusion_anno_table=rename_fusion_anno_columns(fusion_anno_table)
+}
 ## Load linking tables and supporting bp from tools
 
 ## from the individual tools match wgs output linking tables
@@ -232,7 +243,7 @@ if(nrow(matching_bps)==0) {
   quit()
 }
 
-## Annotate Matching bps 
+## Annotate Matching bps ----
 
 # annotate with overlap variable
 matching_intervals_table = read.table(matching_intervals_path,header=T, sep="\t",stringsAsFactors = F)
@@ -362,7 +373,7 @@ if(nrow(matching_bps)==0) {
 ## endof matching bps and tx selection
 
 
-## Analyse underlying SV
+## Analyse underlying SV ----
 
 #SV has 2 paradigms: bp and ranges
 #1) Partner ranges for intra chr DEL DUP INV, flanking 50 bp region for CTX bps
@@ -448,6 +459,7 @@ if(nrow(matching_bps)==0) {
     overlap_merged_entry = find_same_sv(supporting_svs_ranges[supporting_svs_ranges$fusion_name==i],
                                         supporting_svs_ranges[supporting_svs_ranges$fusion_name==i],
                                         reciprocal_overlap = 0.5,svtype_matching = T,ignore_strand = F)
+    if(length(overlap_merged_entry)==0) next()
     overlap_merged_entry$fusion_name = i
     overlap_merged = rbind(overlap_merged,overlap_merged_entry)
     
@@ -530,7 +542,7 @@ if(nrow(matching_bps)==0) {
 
 
 
-  ## Fusion level summary
+## Fusion level summary ----
   
   # use supporting sv properties (sv type, AF, somatic/germline/low
   # use matching bps for gene id gene type etc gup location     
@@ -586,6 +598,7 @@ if(nrow(matching_bps)==0) {
   ## SV properties if not composite than these should match between gup/gdw
   ## merge tumor gup/gdw normal gup/gdw AF, tools, sv type, sv length
   ## merging takes care of grouping so do not explicitly merge first per tool anymore. 
+
 
 fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
   summarize(gup_sf_breakpoint = toString(unique(sort(gup_sf_breakpoint))), gdw_sf_breakpoint = toString(unique(sort(gdw_sf_breakpoint))),
@@ -673,28 +686,5 @@ write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FA
 write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
-## TODO test if it worked => Looks like it did!
-if(FALSE) {
-fusion_level_svs$patient_id=patient$patient_id
-fusion_level_svs = fusion_level_svs %>% 
-  mutate(patient_fusion =  paste(patient_id,fusion_name,sep="_"),
-         patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"),
-         patient_sv_id =  paste(patient_id,gup_sv_merged,gdw_sv_merged,sep="_"))
-sv_merged_names_map = fusion_level_svs %>% select(patient_sv_id,sv_names,patient_fusion) %>% unique()
-
-same_sv_merged_multi_names = sv_merged_names_map  %>%
-  group_by(patient_sv_id) %>% 
-  summarize(sv_names_cnt = length(unique(sv_names)),
-            sv_names_lst = toString(paste0(" ; ",sv_names)),
-            fusion_cnt = length(unique(patient_fusion)),
-            fusion_lst = toString(unique(sort(patient_fusion)))) %>%
-  filter(sv_names_cnt>1)
-
-same_sv_merged_multi_names
-
-## TODO check it it would change results => compare to backup file
-
-
-}
 
 
