@@ -442,20 +442,6 @@ if(nrow(matching_bps)==0) {
     
   }
   
-  overlap_merged$sv_merged = paste0(overlap_merged$sv_merged,"_",overlap_merged$fusion_name)
-  
-  library(openssl)
-  map_merged_to_sv_names = overlap_merged %>% group_by(sv_merged) %>% 
-    summarize(sv_names = toString(unique(sort(c(set1)))),
-              sv_merged_hash= paste0("merged_",md5(sv_names)))
-  overlap_merged = overlap_merged %>% left_join(map_merged_to_sv_names[,c("sv_merged","sv_merged_hash")],by="sv_merged")
-  
-  
-  overlap_merged = overlap_merged %>% dplyr::rename(sv_merged_fusion = sv_merged, sv_merged = sv_merged_hash)
-  
-  ## end of update 
-  
-  
   #returns pairwise overlaps between SVs and the sv merged they have in common
   # also contains sv merged coordinate and the overlap fractions between each with merged and with eachother
   ## NB: currently not using the merged SV itself in this pipeline, but the identifier to group similar/same SV events
@@ -469,6 +455,17 @@ if(nrow(matching_bps)==0) {
   
   ## Build supporting SV dataframe
   if(length(overlap_merged)>0){
+    overlap_merged$sv_merged = paste0(overlap_merged$sv_merged,"_",overlap_merged$fusion_name)
+    
+    library(openssl)
+    map_merged_to_sv_names = overlap_merged %>% group_by(sv_merged) %>% 
+      summarize(sv_names = toString(unique(sort(c(set1)))),
+                sv_merged_hash= paste0("merged_",md5(sv_names)))
+    overlap_merged = overlap_merged %>% left_join(map_merged_to_sv_names[,c("sv_merged","sv_merged_hash")],by="sv_merged")
+    
+    
+    overlap_merged = overlap_merged %>% dplyr::rename(sv_merged_fusion = sv_merged, sv_merged = sv_merged_hash)
+    
     ## check if sv only assigned once 
     if(nrow(unique(overlap_merged[,c("set1","sv_merged")]))!=length(unique(overlap_merged$set1))) {
       uq_merged = unique(overlap_merged[,c("set1","sv_merged")])
