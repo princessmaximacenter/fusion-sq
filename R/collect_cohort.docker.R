@@ -58,10 +58,6 @@ if(!exists("analysis_type")) {
 ##  make templates where you either fill ${analysis_type}=> analysis_type,"." if fusion catcher and temporarily if star fusion just "" 
 analysis_type_filename=paste0(".",analysis_type)
 
-if(analysis_type=="starfusion"){
-  analysis_type_filename=""
-} 
-
 #order of arguments matters
 map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,
                     '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,
@@ -92,14 +88,6 @@ if(length(Sys.glob(cohort_fusion_level_results_path))==1 ){
 
 #for patient level output
 
-#Temporary code:
-#not needed anymore if dots are added to proper location in template
-analysis_type_filename_patient=paste0(analysis_type,".")
-if(analysis_type=="starfusion"){
-  analysis_type_filename_patient=""
-} 
-
-## end temp
 
 ## Read in cohort
 cohort = read.table(patient_table_path,sep = "\t", header=T,stringsAsFactors = T)
@@ -110,6 +98,20 @@ cohort_fusion_level_results = data.frame(stringsAsFactors=FALSE)
 fusion_overview = data.frame(stringsAsFactors = FALSE)
 supporting_svs_df = data.frame(stringsAsFactors = FALSE)
 pairwise_overlap_merged_df = data.frame(stringsAsFactors = FALSE)
+
+## TODO adjust for running 2 rna tools as loop.
+# if fusion level merge df and fusion annotation merge df are available. 
+# otherwise fusion level output and predictions of either.
+
+
+
+for(analysis_type in c("starfusion","fusioncatcher")){
+  #Temporary code:
+  #not needed anymore if dots are added to proper location in template
+  analysis_type_filename_patient=paste0(analysis_type,".")
+  ## end temp
+  
+
 
 for(id in cohort$patient_identifier) {
   patient = filter(cohort,patient_identifier==id)
@@ -139,26 +141,29 @@ for(id in cohort$patient_identifier) {
   fusion_anno_table=read.table(fusion_anno_table_path,header=T,sep="\t")
   fusion_anno_table = fusion_anno_table %>% left_join(matching_intervals_table[,c("identifier","overlap_gup_gdw_adjacent_intron","overlap_gup_gdw_genebody")], by=c("identifier"))
   fusion_anno_table$patient_id = patient$patient_id
-  fusion_overview = rbind(fusion_anno_table,fusion_overview)
+  fusion_anno_table$rna_tools=analysis_type
+  fusion_overview = rbind_no_colmatch(fusion_anno_table,fusion_overview)
    
   if(length(Sys.glob(matching_bp_path))!=1){ next()}
   
   matching_bps = read.table(matching_bp_path,header=T,sep="\t") 
   if(nrow(matching_bps)>0) {
     matching_bps$patient_id = patient$patient_id 
-    cohort_results = rbind(cohort_results,as.data.frame(matching_bps))
+    matching_bps$rna_tools=analysis_type
+    cohort_results = rbind_no_colmatch(cohort_results,as.data.frame(matching_bps))
   
     fusion_level_results = read.table(fusion_level_results_path,header=T,sep="\t") 
     fusion_level_results$patient_id = patient$patient_id
-    cohort_fusion_level_results = rbind(cohort_fusion_level_results,as.data.frame(fusion_level_results))
+    fusion_level_results$rna_tools=analysis_type
+    cohort_fusion_level_results = rbind_no_colmatch(cohort_fusion_level_results,as.data.frame(fusion_level_results))
     
     
    if(length(Sys.glob(supporting_svs_path))!=1){next()}
     
    supporting_svs = read.table(supporting_svs_path,header=T,sep="\t",stringsAsFactors = F) 
    supporting_svs$patient_id = patient$patient_id
-        
-   supporting_svs_df = rbind(supporting_svs_df,supporting_svs)
+    supporting_svs$rna_tools=analysis_type
+   supporting_svs_df = rbind_no_colmatch(supporting_svs_df,supporting_svs)
    
    
    
@@ -166,16 +171,19 @@ for(id in cohort$patient_identifier) {
    
    pairwise_overlap_merged = read.table(pairwise_overlap_merged_path,header=T,sep="\t",stringsAsFactors = F) 
    pairwise_overlap_merged$patient_id = patient$patient_id
-   
-   pairwise_overlap_merged_df = rbind(pairwise_overlap_merged_df,pairwise_overlap_merged)
+   pairwise_overlap_merged$rna_tools=analysis_type
+   pairwise_overlap_merged_df = rbind_no_colmatch(pairwise_overlap_merged_df,pairwise_overlap_merged)
    
   }
 }
+}
 
 ## Unique identifier and sanity checks 
-cohort_fusion_level_results$patient_fusion = paste0(cohort_fusion_level_results$patient_id,"_",cohort_fusion_level_results$fusion_name)
-cohort_fusion_level_results = cohort_fusion_level_results %>% mutate(patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"))
-
+cohort_fusion_level_results = cohort_fusion_level_results %>%
+  mutate(fusion_name = str_replace(str_replace(fusion_name,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
+         patient_fusion =  paste(patient_id,fusion_name,sep="_"),
+         patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"),
+         patient_sv_id =  paste(patient_id,gup_sv_merged,gdw_sv_merged,sep="_"))
 
 if(nrow(cohort_fusion_level_results %>% filter(gup_sv_merged!=gdw_sv_merged & svtype!= "CTX" & specific_sv == T & grepl(",",tools)))>0) {
   print("WARNING: unexpected gup/gdw sv merged difference (non CTX and multi tools)")
@@ -183,13 +191,13 @@ if(nrow(cohort_fusion_level_results %>% filter(gup_sv_merged!=gdw_sv_merged & sv
     select(patient_fusion,gup_sv_merged,gdw_sv_merged,svtype,tools)
 }
 
-cohort_results = cohort_results %>% mutate(patient_fusion_sv = paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"))
-cohort_results$patient_fusion = paste0(cohort_results$patient_id,"_",cohort_results$fusion_name)
+cohort_results = cohort_results %>%
+  mutate(fusion_name = str_replace(str_replace(fusion_name,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
+       patient_fusion =  paste(patient_id,fusion_name,sep="_"),
+       patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"),
+       patient_sv_id =  paste(patient_id,gup_sv_merged,gdw_sv_merged,sep="_"))
 
-if(nrow(cohort_results %>% filter(gup_tool != gdw_tool))>0) {
-  print("WARNING: gup/gdw tools dont match")
-  print(cohort_results %>% filter(gup_tool != gdw_tool))
-}
+
 cohort_results = cohort_results %>% dplyr::rename(tool= gup_tool) %>% select(-gdw_tool)
 
 cohort_results = cohort_results %>% group_by(patient_fusion_sv) %>% mutate(svtype=toString(unique(sort(c(gup_svtype,gdw_svtype)))))
@@ -200,11 +208,15 @@ if(nrow(cohort_results %>% filter(gup_svtype != gdw_svtype & gup_location !="com
 }
 
 
+
+fusion_overview = fusion_overview %>% 
+  mutate(fusion_name = str_replace(str_replace(fusion_name,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
+         patient_fusion =  paste(patient_id,fusion_name,sep="_"))
+
+
 write.table(cohort_fusion_level_results,cohort_fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 write.table(cohort_results,cohort_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
-
-fusion_overview$patient_fusion = paste0(fusion_overview$patient_id,"_",fusion_overview$fusion_name)
 
 write.table(fusion_overview,fusion_overview_path,quote = FALSE,sep = "\t",row.names=FALSE)
 

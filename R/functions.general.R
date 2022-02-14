@@ -21,6 +21,26 @@ rename_fusion_anno_columns = function(fusion_anno_table) {
 return(fusion_anno_table)
 }
 
+
+
+rbind_no_colmatch = function (df1,df2)  {
+  if(nrow(df1)==0) {
+    return(df2)
+  }
+  if(nrow(df2)==0) {
+    return(df1)
+  }
+  cols_1 = names(df1)
+  cols_2 = names(df2)
+  col_diff_1 = cols_2[!cols_2 %in% cols_1]
+  col_diff_2 = cols_1[!cols_1 %in% cols_2]
+  df1[,col_diff_1]=NA
+  df2[,col_diff_2]=NA
+  
+  join_df=rbind(df1,df2)
+  return(join_df)
+}
+
 ## harmonisation of identifiers
 
 harmonize_gene_identifiers = function(df) {
