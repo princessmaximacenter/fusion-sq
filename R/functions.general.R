@@ -21,6 +21,45 @@ rename_fusion_anno_columns = function(fusion_anno_table) {
 return(fusion_anno_table)
 }
 
+## harmonisation of identifiers
+
+harmonize_gene_identifiers = function(df) {
+  #fusioncatcher has custom ids for igh locus, but not used in my pipeline -> needs matching version 
+  #remove ensembl ids for those that have no matching _version to resolve that 
+  #https://github.com/ndaniel/fusioncatcher/blob/master/bin/add_custom_gene.py
+  df = df %>% mutate(
+    gup_gene_id = str_replace(str_replace(gup_gene_id,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
+    gdw_gene_id = str_replace(str_replace(gdw_gene_id,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
+    fusion_name = str_replace(str_replace(fusion_name,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"))
+  
+  if("gup_ensembl_version" %in% names(df) & "gdw_ensembl_version" %in% names(df) ) {
+    df = df %>% mutate(
+      gup_ensembl_version = ifelse(grepl("ENS",gup_ensembl_version),gup_ensembl_version,NA),
+      gdw_ensembl_version = ifelse(grepl("ENS",gdw_ensembl_version),gdw_ensembl_version,NA),
+      gup_ensembl_id = ifelse(!is.na(gup_ensembl_version),gup_ensembl_id,NA),
+      gdw_ensembl_id = ifelse(!is.na(gdw_ensembl_version),gdw_ensembl_id,NA))
+    
+  } else {
+    #for the IGH 
+    df = df %>% mutate(
+      gup_ensembl_id = ifelse(gup_gene_id=="IGH",NA,gup_ensembl_id),
+      gdw_ensembl_id = ifelse(gdw_gene_id=="IGH",NA,gdw_ensembl_id))
+    
+  }
+  return(df)        
+}
+
+make_identifiers_cohort_analysis = function(df) {
+  df = df %>% mutate(patient_fusion =  paste(patient_id,fusion_name,sep="_"))
+  
+  if("gup_sv_merged" %in% names(df) & "gdw_sv_merged" %in% names(df) ) {
+    df = df %>% mutate(
+      patient_fusion_sv =  paste(patient_id,gup_sv_merged,gdw_sv_merged,fusion_name,sep="_"),
+      patient_sv_id =  paste(patient_id,gup_sv_merged,gdw_sv_merged,sep="_"))
+  }
+  
+  return(df)
+}
 ## Counting functions
 
 uq_fusions = function(fusion_summary){

@@ -21,18 +21,20 @@ if(FALSE) {
   source("~/fusion_sq/R/default.docker.local.conf")
   source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
   
-  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID203AAL.conf 
+  
+  
+  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID308AAA.conf 
   patient = c()
-  patient$patient_id = "PMCID203AAL"
-  patient$tumor_id = "PMABM000HAS"
-  patient$normal_id = "PMABM000HBB"
+  patient$patient_id = "PMCID308AAA"
+  patient$tumor_id = "PMABM000BGL"
+  patient$normal_id = "PMABM000BFF"
   patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
   patient$tumor_label = paste0(patient$tumor_id,"_WGS")
   patient$normal_label = paste0(patient$normal_id,"_WGS")
-  patient$rna_id="PMABM000HAT"
+  patient$rna_id="PMABM000BGM"
   patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
   
-  analysis_type="fusioncatcher"
+  #analysis_type="fusioncatcher"
   analysis_type="starfusion"
   
 }
@@ -50,11 +52,10 @@ suppressPackageStartupMessages({
   library(tidyverse, quietly=TRUE)
   library(stringr, quietly=TRUE)
   library(stringdist, quietly=TRUE)
-  #library(argparser, quietly=TRUE)
   library(GenomicRanges, quietly=TRUE)
   library(dplyr)
   library(stringi)
-  
+  library(openssl)
 })
 
 source(paste0(script_dir,"functions.general.R"))
@@ -315,7 +316,7 @@ for(test_fusion_name in unique(fusions_to_specify$fusion_name)) {
 
 
 
-write.table(fusion_tx_selection_summary,fusion_tx_selection_path, quote = FALSE,sep = "\t",row.names=FALSE)
+#write.table(fusion_tx_selection_summary,fusion_tx_selection_path, quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 ## Add back fusions without specific SV too 
@@ -407,24 +408,29 @@ if(nrow(matching_bps)==0) {
   # Find Same SVs
   ## which of the SVs overlap >50% and make a merged/reduced SV 
   
-  ## UPDATE annotation moved here because I need the fusion name, also add to  full supporting_svs_df later
   ## Aim: get fusion name and predictions per SV (bp pair)
   ## First fusion name per bp /side
   matching_bp_long = matching_bps_sv_anno %>%
     gather(key = "bp_name_orient",value="bp_name",-fusion_id,-fusion_name,-gup_location,-gdw_location)  
   
+  ## SVs can support multiple fusion predictions, eg. overlapping genes or reciprocals IGH--MYC and MYC--IGH 
+  ## for the SV merging you want to keep these seperate (2 rows) to re-use the SVs . 
+  ## for annotation of sv output you can merge them together eg. "IGH--MYC, MYC--IGH"
+  
   ## map sv range => bp name. Join with bpname level annotation and summarize
   ## group by sv name, so both partner halves come together again, 
   ## Also works if no merged ranges found
   ## note, not yet for location
-  map_sv_range_anno = map_sv_range_bp_name %>% left_join(matching_bp_long,by="bp_name") %>% group_by(sv_name) %>%
-    summarize(fusion_name = toString(sort(unique(fusion_name))), fusion_predictions = toString(sort(unique(fusion_id))))
   
-  svs_metadata= as.data.frame(mcols(supporting_svs_ranges))
-  svs_metadata$sv_name = rownames(svs_metadata)
-  mcols(supporting_svs_ranges) = svs_metadata %>% left_join(map_sv_range_anno[,c("sv_name","fusion_name")], by=c("sv_name"))
+  map_sv_fusion = map_sv_range_bp_name %>% left_join(matching_bp_long,by="bp_name") %>% select(sv_name,fusion_name) %>% unique()
   
-
+  #to df because we need multiple rows for merging per fusion
+  
+  supporting_svs_ranges_df = as.data.frame(supporting_svs_ranges)
+  supporting_svs_ranges_df$sv_name = rownames(supporting_svs_ranges_df)
+  supporting_svs_ranges_df = supporting_svs_ranges_df %>% left_join(map_sv_fusion, by=c("sv_name"))
+  supporting_svs_ranges = GRanges(supporting_svs_ranges_df)
+  names(supporting_svs_ranges) = supporting_svs_ranges$sv_name
   
   ## Update 2022-01: merge per fusion so that the output is independant of the total SVs found for all candidates
   ## SV merged need to be unique: added fusion name
@@ -455,28 +461,28 @@ if(nrow(matching_bps)==0) {
   
   ## Build supporting SV dataframe
   if(length(overlap_merged)>0){
-    overlap_merged$sv_merged = paste0(overlap_merged$sv_merged,"_",overlap_merged$fusion_name)
-    
-    library(openssl)
+    #helper for the hashing, otherwise wrong svs are taken together
+    overlap_merged$sv_merged= paste0(overlap_merged$sv_merged,"_",overlap_merged$fusion_name)
+    #hash the sv merged identifiers for uq names
     map_merged_to_sv_names = overlap_merged %>% group_by(sv_merged) %>% 
       summarize(sv_names = toString(unique(sort(c(set1)))),
                 sv_merged_hash= paste0("merged_",md5(sv_names)))
     overlap_merged = overlap_merged %>% left_join(map_merged_to_sv_names[,c("sv_merged","sv_merged_hash")],by="sv_merged")
     
-    
-    overlap_merged = overlap_merged %>% dplyr::rename(sv_merged_fusion = sv_merged, sv_merged = sv_merged_hash)
+    overlap_merged = overlap_merged %>% select(-sv_merged) %>% dplyr::rename(sv_merged = sv_merged_hash)
     
     ## check if sv only assigned once 
-    if(nrow(unique(overlap_merged[,c("set1","sv_merged")]))!=length(unique(overlap_merged$set1))) {
-      uq_merged = unique(overlap_merged[,c("set1","sv_merged")])
-      print( overlap_merged[overlap_merged$set1 %in% uq_merged[duplicated(uq_merged$set1),c("set1")],])
-      
-      print("WARNING SV assigned multiple times")
-      print(patient$patient_identifier)
-      break
-    }
+    ## should be turned off with per-fusion merging
+    # if(nrow(unique(overlap_merged[,c("set1","sv_merged")]))!=length(unique(overlap_merged$set1))) {
+    #   uq_merged = unique(overlap_merged[,c("set1","sv_merged")])
+    #   print( overlap_merged[overlap_merged$set1 %in% uq_merged[duplicated(uq_merged$set1),c("set1")],])
+    #   
+    #   print("WARNING SV assigned multiple times")
+    #   print(patient$patient_identifier)
+    #   break
+    # }
     
-    write.table(overlap_merged,pairwise_overlap_merged_path,quote = FALSE,sep = "\t",row.names=FALSE)
+    #write.table(overlap_merged,pairwise_overlap_merged_path,quote = FALSE,sep = "\t",row.names=FALSE)
     
     supporting_svs_df = as.data.frame(supporting_svs) %>% 
       left_join(overlap_merged[,c("set1","sv_merged","sv_merged_coordinate","overlap_merged_set1","overlap_set1_merged")], by=c("bp_name"="set1")) 
@@ -503,7 +509,10 @@ if(nrow(matching_bps)==0) {
   
   
   ## Add annotation to SVs 
+  ## summarize fusion predictions over SVs, as it can support multple
   
+  map_sv_range_anno = map_sv_range_bp_name %>% left_join(matching_bp_long,by="bp_name") %>% group_by(sv_name) %>%
+    summarize(fusion_name = toString(sort(unique(fusion_name))), fusion_predictions = toString(sort(unique(fusion_id))))
   
   #add the 'sv name' also explicitly
   supporting_svs_df$sv_name=supporting_svs_df$bp_name
@@ -512,7 +521,7 @@ if(nrow(matching_bps)==0) {
     supporting_svs_df %>% left_join(map_sv_range_anno, by=c("sv_name"))
   
   
-  write.table(supporting_svs_df,supporting_svs_path,quote = FALSE,sep = "\t",row.names=FALSE)
+  #write.table(supporting_svs_df,supporting_svs_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 
@@ -655,9 +664,9 @@ fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_gro
   } 
   
   
-write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
+#write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
   
-write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
+#write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 
