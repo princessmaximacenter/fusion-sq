@@ -316,7 +316,7 @@ for(test_fusion_name in unique(fusions_to_specify$fusion_name)) {
 
 
 
-#write.table(fusion_tx_selection_summary,fusion_tx_selection_path, quote = FALSE,sep = "\t",row.names=FALSE)
+write.table(fusion_tx_selection_summary,fusion_tx_selection_path, quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 ## Add back fusions without specific SV too 
@@ -482,7 +482,7 @@ if(nrow(matching_bps)==0) {
     #   break
     # }
     
-    #write.table(overlap_merged,pairwise_overlap_merged_path,quote = FALSE,sep = "\t",row.names=FALSE)
+    write.table(overlap_merged,pairwise_overlap_merged_path,quote = FALSE,sep = "\t",row.names=FALSE)
     
     supporting_svs_df = as.data.frame(supporting_svs) %>% 
       left_join(overlap_merged[,c("set1","sv_merged","sv_merged_coordinate","overlap_merged_set1","overlap_set1_merged")], by=c("bp_name"="set1")) 
@@ -521,7 +521,7 @@ if(nrow(matching_bps)==0) {
     supporting_svs_df %>% left_join(map_sv_range_anno, by=c("sv_name"))
   
   
-  #write.table(supporting_svs_df,supporting_svs_path,quote = FALSE,sep = "\t",row.names=FALSE)
+  write.table(supporting_svs_df,supporting_svs_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 
@@ -664,9 +664,9 @@ fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_gro
   } 
   
   
-#write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
+write.table(matching_bps2,matching_bp_path,quote = FALSE,sep = "\t",row.names=FALSE)
   
-#write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
+write.table(fusion_level_svs,fusion_level_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
 
