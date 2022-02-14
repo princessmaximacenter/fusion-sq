@@ -34,8 +34,8 @@ if(FALSE) {
   patient$rna_id="PMABM000BGM"
   patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
   
-  #analysis_type="fusioncatcher"
-  analysis_type="starfusion"
+  analysis_type="fusioncatcher"
+  #analysis_type="starfusion"
   
 }
 if(FALSE){
@@ -102,6 +102,8 @@ matching_bps_reporting_cols = c("fusion_id","fusion_name",
 # supporting sv properties 
 supporting_sv_fusion_cols = c("svtype", "svLen", "tumor_af", "normal_af", "tool",
                               "sv_merged", "sv_merged_coordinate", "sv_name","coordinate")
+
+merge_svs_group_cols = c("fusion_name","gup_sv_merged","gdw_sv_merged","gup_sv_merged_coordinate","gdw_sv_merged_coordinate")
 
 #add gene properties, same regardless of fusion tool
 fusion_anno_table_gene_cols =  c("identifier","gup_ensembl_id","gdw_ensembl_id", "gup_gene_type","gdw_gene_type")
@@ -582,9 +584,23 @@ if(nrow(matching_bps)==0) {
   ## merge tumor gup/gdw normal gup/gdw AF, tools, sv type, sv length
   ## merging takes care of grouping so do not explicitly merge first per tool anymore. 
 
+  merge_sv_properties = matching_bps2 %>% 
+    select(all_of(c(fusion_level_svs_group_cols,paste0("gup_",supporting_sv_fusion_cols),paste0("gdw_",supporting_sv_fusion_cols)))) %>%
+    unique() %>%
+    group_by(across(all_of(merge_svs_group_cols))) %>% 
+    summarize( 
+      sv_names = toString(unique(sort(c(as.character(gup_sv_name),as.character(gdw_sv_name))))),
+      gup_coordinate = toString(unique(sort(gup_coordinate))), gdw_coordinate = toString(unique(sort(gdw_coordinate))),
+      tools=toString(unique(sort(c(gup_tool,gdw_tool)))),
+      tumor_af=mean(c(gup_tumor_af,gdw_tumor_af),na.rm=T), normal_af=mean(c(gup_normal_af,gdw_normal_af),na.rm=T),
+      tumor_af_spread=(max(tumor_af,na.rm=T)-min(tumor_af,na.rm=T)), normal_af_spread=(max(normal_af,na.rm=T)-min(normal_af,na.rm=T)), 
+      svtype=toString(unique(sort(c(gup_svtype,gdw_svtype)))), 
+      svlen=ifelse(!grepl("CTX",svtype),mean(c(gup_svLen,gdw_svLen),na.rm=T),NA),
+      svlen_spread=ifelse(!is.na(svlen),(max(c(gup_svLen,gdw_svLen),na.rm=T)-min(c(gup_svLen,gdw_svLen),na.rm = T)),NA),
+      .groups="keep") %>% ungroup() %>% as.data.frame()
 
-fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
-  summarize(gup_sf_breakpoint = toString(unique(sort(gup_sf_breakpoint))), gdw_sf_breakpoint = toString(unique(sort(gdw_sf_breakpoint))),
+  fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_group_cols))) %>% 
+    summarize(gup_sf_breakpoint = toString(unique(sort(gup_sf_breakpoint))), gdw_sf_breakpoint = toString(unique(sort(gdw_sf_breakpoint))),
             gup_gene_id = toString(unique(gup_gene_id)), gdw_gene_id = toString(unique(gdw_gene_id)),
             gup_gene_type = toString(unique(gup_gene_type)), gdw_gene_type = toString(unique(gdw_gene_type)),
             gup_ensembl_id=unique(gup_ensembl_id),gdw_ensembl_id=unique(gdw_ensembl_id),
@@ -592,21 +608,14 @@ fusion_level_svs = matching_bps2 %>% group_by(across(all_of(fusion_level_svs_gro
             fusion_predictions = toString(unique(sort(fusion_id))),
             gup_location=toString(unique(sort(gup_location))), gdw_location=toString(unique(sort(gdw_location))),
             overlap_gup_gdw_genebody = any(overlap_gup_gdw_genebody),
-            
-            sv_names = toString(unique(sort(c(as.character(gup_sv_name),as.character(gdw_sv_name))))),
-            gup_coordinate = toString(unique(sort(gup_coordinate))), gdw_coordinate = toString(unique(sort(gdw_coordinate))),
-            tools=toString(unique(sort(c(gup_tool,gdw_tool)))),
-            tumor_af=mean(c(gup_tumor_af,gdw_tumor_af),na.rm=T), normal_af=mean(c(gup_normal_af,gdw_normal_af),na.rm=T),
-            tumor_af_spread=(max(tumor_af,na.rm=T)-min(tumor_af,na.rm=T)), normal_af_spread=(max(normal_af,na.rm=T)-min(normal_af,na.rm=T)), 
-            svtype=toString(unique(sort(c(gup_svtype,gdw_svtype)))), 
-            svlen=ifelse(!grepl("CTX",svtype),mean(c(gup_svLen,gdw_svLen),na.rm=T),NA),
-            svlen_spread=ifelse(!is.na(svlen),(max(c(gup_svLen,gdw_svLen),na.rm=T)-min(c(gup_svLen,gdw_svLen),na.rm = T)),NA),
-            
+                     
             gup_gdw_sv_distance_mean = mean(gup_gdw_sv_distance,na.rm=T),
             gup_distance_mean = mean(gup_distance,na.rm=T), gdw_distance_mean = mean(gdw_distance,na.rm=T),
             
             .groups="keep") %>% ungroup() %>% as.data.frame()
 
+
+  fusion_level_svs = fusion_level_svs %>% left_join(merge_sv_properties,by=merge_svs_group_cols)
 
   #rename tumor/normal_af_mean afterwards but needed for  annotate somatic/germline/low_af
   ## if after mean still NAs then only NAs present, replace to prevent NAs with variant classification
