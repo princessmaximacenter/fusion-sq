@@ -29,19 +29,21 @@ if(FALSE) {
   source("~/fusion_sq/R/default.docker.local.conf")
   source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
   
-  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID172AAM.conf 
+  #cat /hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.PMCID143AAM.conf 
   patient = c()
-  patient$patient_id = "PMCID172AAM"
-  patient$tumor_id = "PMABM000FBI"
-  patient$normal_id = "PMABM000FBS"
+  patient$patient_id = "PMCID143AAM"
+  patient$tumor_id = "PMABM000FBK"
+  patient$normal_id = "PMABM000FBT"
   patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
   patient$tumor_label = paste0(patient$tumor_id,"_WGS")
   patient$normal_label = paste0(patient$normal_id,"_WGS")
-  patient$rna_id="PMABM000FBJ"
+  patient$rna_id="PMABM000FBL"
   patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
   
   analysis_type="fusioncatcher"
   
+  settings$vcf = "~/data/delly/PMABM000FBK_PMABM000FBT_WGS.vcf"
+  run_tool="delly"
 }
 
 
@@ -203,9 +205,9 @@ if(length(all_gr)<1) quit("No breakpoints found")
   linking_table_composite = data.frame(stringsAsFactors=FALSE) 
   additional_bp_table = data.frame(stringsAsFactors=FALSE) 
   
-  
-  match_bool = F 
   for (fusion_id in fusion_id_lst) {  
+    match_bool = F 
+    
     linking_table_entry = c()
     linking_table_entry_composite = c()
     additional_bp_entry = c()
@@ -500,4 +502,3 @@ if(length(all_gr)<1) quit("No breakpoints found")
 
 #linking_table[is.na(linking_table)]=0
 write.table(linking_table,linking_table_path,quote = FALSE,sep = "\t",row.names=FALSE)
-
