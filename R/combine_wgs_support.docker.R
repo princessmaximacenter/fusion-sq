@@ -37,6 +37,17 @@ if(FALSE) {
   analysis_type="fusioncatcher"
   #analysis_type="starfusion"
   
+  patient = c()
+  patient$patient_id = "PMCID155AAO"
+  patient$tumor_id = "PMABM000GVV"
+  patient$normal_id = "PMABM000GVZ"
+  patient$basename = paste0(patient$tumor_id,"_",patient$normal_id)
+  patient$tumor_label = paste0(patient$tumor_id,"_WGS")
+  patient$normal_label = paste0(patient$normal_id,"_WGS")
+  patient$rna_id="PMABM000GVW"
+  patient$patient_identifier= paste0(patient$patient_id,"_",patient$rna_id)
+  
+  analysis_type="starfusion"
 }
 if(FALSE){
   #set paths for hpc
@@ -378,7 +389,9 @@ if(nrow(matching_bps)==0) {
   supporting_bps[supporting_bps$tool!="manta",c("somatic")] = NA
   supporting_bps = unique(supporting_bps)
   supporting_bps[,c("svtype","bp_name","partner","tool")]=endoapply(supporting_bps[,c("svtype","bp_name","partner","tool")],as.character)
-  supporting_bp_gr = df_to_gr(supporting_bps)
+  
+  gr_cols = c("seqnames","start","end","width","strand","bp_name")
+  supporting_bp_gr = df_to_gr(supporting_bps[,c(gr_cols,supporting_sv_metadata_cols)])
   supporting_bp_gr$svtype = get_svtype(supporting_bp_gr)
   
   # Loop through supporting_bp_gr and make partner ranges out of it - these get a new ID
