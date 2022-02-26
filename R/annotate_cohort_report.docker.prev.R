@@ -1,9 +1,8 @@
 ## Fusion-sq 
 ## Annotate cohort report
-## Last update: 2022-02-17 
-## Adjust for merged fusions, focus on the gene level annotation. 
-## TODO later implement output from SV pipeline 
-
+## Last update: 2022-01-12
+##  path local overrides and docker version
+## 
 # Input: cohort fusions  (from collect_cohort.R)
 ## 
 # Annotate gene fusions with cancer related genes, healthy chimera, chromosome bands/cytobands, 
@@ -14,17 +13,8 @@
 ## Annotate with CNAs and SNVs (see utils)
 ## Gene expression & z scores (from gene_expression_zscores.R), wilcox test for fusion carrying patients
 
-# Changelog
-## 2022-01-12
-##  path local overrides and docker version
 
 
-if(FALSE) {
-  #local
-  source("~/fusion_sq/R/default.conf")
-  source("~/fusion_sq/R/default.docker.local.conf")
-  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
-}
 if(FALSE){
   #set paths for hpc
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
@@ -34,9 +24,34 @@ if(FALSE){
   source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.conf")
 }
 
+
+if(FALSE){
+  #set paths for local use
+  source("~/fusion_sq/R/default.conf")
+  
+  #override local for templating
+  source("~/fusion_sq/R/default.docker.local.conf")
+  #this is the local version of hpc config
+  #source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.conf")
+  
+  #containing the cohort level config things   
+  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+  
+  #todo: make consistent with config files, this is the first time using cohort in the pipeline and patient_table_path is beter than what is now patient_table
+  #output dir is where everything will be stored in this github version and also on hpc. 
+  #templating should take care of differences between HPC and local => see TODO in default.conf
+  
+  analysis_type="fusioncatcher"
+}
+
 if(!exists("patient_table_path") | length(Sys.glob(patient_table_path))!=1) {
   print(paste0("Cohort file not available: ",patient_table_path))
   #quit()
+}
+
+
+if(!exists("analysis_type")) {
+  analysis_type="starfusion"
 }
 
 suppressPackageStartupMessages({
@@ -47,96 +62,70 @@ suppressPackageStartupMessages({
   library(stringi)
 })
 
+#source("R/default.conf") #in script dir
 source(paste0(script_dir,"functions.general.R")) 
 
-map_template_vars=c('${resources_dir}'=resources_dir,'${input_dir}'=input_dir,'${output_dir}'=output_dir,
-                    '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir)
 
+##  make templates where you either fill ${analysis_type}=> analysis_type,"." if fusion catcher and temporarily if star fusion just "" 
+analysis_type_filename=paste0(".",analysis_type)
+
+if(analysis_type=="starfusion"){
+  analysis_type_filename=""
+} 
+
+#order of arguments matters
+map_template_vars=c('${input_dir}'=input_dir,'${output_dir}'=output_dir,
+                    '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir,
+                    '${analysis_type}'=analysis_type_filename)
+
+
+#fill templates
 reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 base_dir =  stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
 map_template_vars=c(map_template_vars,'${reports_dir}'=reports_dir,'${base_dir}'=base_dir)
 
-##  merge fusion annotation ends up in reports dir too
-## TODO implement in collect cohort file and add 'else add single file' 
-
-#tmp dots
-map_template_vars_merged = c('${analysis_type}'=".merged",
-                             map_template_vars )
-
-map_template_vars = map_template_vars_merged
-
 ## Inputs defined in config file
 ## Collected for cohort:
+cohort_fusion_level_results_path = stri_replace_all_fixed(cohort_fusion_level_results_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+cohort_results_path = stri_replace_all_fixed(cohort_results_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
+fusion_overview_path = stri_replace_all_fixed(fusion_overview_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
 
-cohort_fusion_level_results_path = stri_replace_all_fixed(cohort_fusion_level_results_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F)
-#cohort_results_path = stri_replace_all_fixed(cohort_results_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F) 
-fusion_overview_path = stri_replace_all_fixed(fusion_overview_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F) 
-#cohort_supporting_svs_path = stri_replace_all_fixed(cohort_supporting_svs_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F)
-#cohort_pairwise_overlap_merged_path = stri_replace_all_fixed(cohort_pairwise_overlap_merged_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F) 
-#cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(map_template_vars_merged), map_template_vars_merged,vectorize=F)
+## supporting SVs with gene annotation
+cohort_supporting_svs_anno_path = stri_replace_all_fixed(cohort_supporting_svs_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+
+
+#Gene expression & z scores 
+gene_expression_analysis_path = paste0(reports_dir,gene_expression_zcore_outfile)
+
+# CNA and SNV files => see config
+
+#External resources => see config for files
+## TODO replace by the get_cancer_genes() function
+chimerseq_path = paste0(resources_dir,chimerseq_file)
+mitelman_path = paste0(resources_dir,mitelman_file)
+cosmic_path = paste0(resources_dir,cosmic_file)
+kinases_path = paste0(resources_dir,kinases_file)
+grobner_recurrent_path = paste0(resources_dir,grobner_recurrent_file)
+grobner_druggable_path = paste0(resources_dir,grobner_druggable_file)
+oncokb_path = paste0(resources_dir,oncokb_file)
+chromosome_bands_path = paste0(resources_dir,chromosome_bands_file)
+transcriptionfactors_path = paste0(resources_dir,transcriptionfactors_file)
+
+#clinically_relevant_fusion_genes_path = paste0(resources_dir,"InclusionList_fusion_genes_Homo_sapiens_GRCh38_BioMart_v1.8.txt")
+clinically_relevant_fusion_genes_path = paste0("~/Documents/resources/InclusionList_fusion_genes_Homo_sapiens_GRCh38_BioMart_v1.8.txt")
 
 
 ## Output
 cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(map_template_vars), map_template_vars,vectorize=F)
 fusion_overview_anno_path = stri_replace_all_fixed(fusion_overview_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
 
-## supporting SVs with gene annotation
-#cohort_supporting_svs_anno_path = stri_replace_all_fixed(cohort_supporting_svs_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F)
-
-
-#Gene expression & z scores 
-#gene_expression_analysis_path = paste0(reports_dir,gene_expression_zcore_outfile)
-
-# CNA and SNV files => see config
-
-#External resources => see config for files
-## TODO replace by the get_cancer_genes() function
-if(FALSE) {
-grobner_recurrent_path = paste0(resources_dir,grobner_recurrent_file)
-oncokb_path = paste0(resources_dir,oncokb_file)
-}
-
-cosmic_path = paste0(resources_dir,cosmic_file) #seperate for fusions
-grobner_druggable_path = paste0(resources_dir,grobner_druggable_file)
-
-cancer_related_genes = get_cancer_genes(resources_dir)
-
-## TODO: use the templates
-chimerseq_path = paste0(resources_dir,chimerseq_file)
-mitelman_path = paste0(resources_dir,mitelman_file)
-
-kinases_path = paste0(resources_dir,kinases_file)
-transcriptionfactors_path = paste0(resources_dir,transcriptionfactors_file)
-
-
-
-#clinically_relevant_fusion_genes_path = paste0(resources_dir,"InclusionList_fusion_genes_Homo_sapiens_GRCh38_BioMart_v1.8.txt")
-clinically_relevant_fusion_genes_path = paste0("~/Documents/resources/InclusionList_fusion_genes_Homo_sapiens_GRCh38_BioMart_v1.8.txt")
-
-
-### Settings ----
-svs_extra_cols=c("FILTER","overlap_distance","overlap_set1_set2","overlap_set1_merged",
-                 "start_copy_ratio_log2_mean","end_copy_ratio_log2_mean","copy_ratio_log2_mean","copy_ratio_log2_sd",
-                 "repeat_family_start","repeat_family_end","segdup_start","segdup_end",
-                 "intron_overlap","intron_tx",
-                 "anno_sv_population","anno_sv_db_nstd166","anno_sv_db_nstd186","anno_sv_db_dgv")
-
-#also used for tx selection any time merging on that level is required
-patient_sv_summary_cols=c("fusion_name", "gup_sv_merged", "gdw_sv_merged", "specific_sv", "patient_id")
-transcript_cols = c("transcript_type","involved_fragment","involved_fraction","involved_exon","max_exon")
-
-### Resources ----
-chromosome_bands_path = stri_replace_all_fixed(chromosome_bands_path_template,names(map_template_vars), map_template_vars,vectorize=F)
-chromosome_bands = read.table(chromosome_bands_path,header=T,sep="\t",comment.char = "")
-chromosome_bands = chromosome_bands %>% dplyr::rename("seqnames"="X.chrom","start"="chromStart","end"="chromEnd","cytoband"="name") 
-chromosome_bands$cytoband = paste0(chromosome_bands$seqnames,chromosome_bands$cytoband)
-chromosome_bands = GRanges(chromosome_bands)
-
-
-
-## Start annotating fusion overview and then merge with fusion level results to make the report
-
+#Temporary code:
+#not needed anymore if dots are added to proper location in template
+analysis_type_filename_patient=paste0(analysis_type,".")
+if(analysis_type=="starfusion"){
+  analysis_type_filename_patient=""
+} 
 
 ## START: 
 ## Read in cohort
@@ -158,15 +147,22 @@ if(length(Sys.glob(cohort_fusion_level_results_path))!=1 ){
 
 
 cohort_fusion_level_results = read.table(cohort_fusion_level_results_path,sep = "\t", header=T)
-cohort_fusion_level_results = cohort_fusion_level_results %>% filter(patient_id %in% cohort$patient_id)
-
+cohort_results = read.table(cohort_results_path,sep = "\t", header=T)
 fusion_overview = read.table(fusion_overview_path,sep = "\t", header=T)
-fusion_overview = fusion_overview  %>% filter(patient_id %in% cohort$patient_id)
 
 
-## TODO later for the sv properties
-#cohort_results = read.table(cohort_results_path,sep = "\t", header=T)
-#cohort_results = cohort_results %>% filter(patient_id %in% cohort$patient_id)
+svs_extra_cols=c("FILTER","overlap_distance","overlap_set1_set2","overlap_set1_merged",
+                 "start_copy_ratio_log2_mean","end_copy_ratio_log2_mean","copy_ratio_log2_mean","copy_ratio_log2_sd",
+                 "repeat_family_start","repeat_family_end","segdup_start","segdup_end",
+                 "intron_overlap","intron_tx",
+                 "anno_sv_population","anno_sv_db_nstd166","anno_sv_db_nstd186","anno_sv_db_dgv")
+
+#also used for tx selection any time merging on that level is required
+patient_sv_summary_cols=c("fusion_name", "gup_sv_merged", "gdw_sv_merged", "specific_sv", "patient_id")
+transcript_cols = c("transcript_type","involved_fragment","involved_fraction","involved_exon","max_exon")
+
+
+## Start annotating fusion overview and then merge with fusion level results to make the report
 
 ### Fusion overview to cytobands ----
 fusion_overview = fusion_overview %>%
@@ -174,7 +170,15 @@ fusion_overview = fusion_overview %>%
                                         supergroup, supergroup_label,primary_group_shorthand_label), 
             by="patient_id") 
 
+cohort_fusion_level_results = cohort_fusion_level_results %>% filter(patient_id %in% cohort$patient_id)
+cohort_results = cohort_results %>% filter(patient_id %in% cohort$patient_id)
+fusion_overview = fusion_overview  %>% filter(patient_id %in% cohort$patient_id)
 
+## cytobands
+chromosome_bands = read.table(chromosome_bands_path,header=T,sep="\t",comment.char = "")
+chromosome_bands = chromosome_bands %>% dplyr::rename("seqnames"="X.chrom","start"="chromStart","end"="chromEnd","cytoband"="name") 
+chromosome_bands$cytoband = paste0(chromosome_bands$seqnames,chromosome_bands$cytoband)
+chromosome_bands = GRanges(chromosome_bands)
 
 fusions_gup = GRanges(fusion_overview$gup_sf_breakpoint)
 mcols(fusions_gup)$patient_fusion = fusion_overview$patient_fusion
@@ -318,7 +322,7 @@ cohort_fusion_level_results = cohort_fusion_level_results %>%
 }
 
 ### External annotation of chimera and cancer genes ----
-## Chimera annotation ----
+## Chimera annotation
 
 
 ## ChimerSeq
@@ -358,8 +362,9 @@ fusion_overview = fusion_overview %>%
   mutate(anno_gdw_cosmic_fusion = (gdw_gene_id %in% cosmic_fusions$Gene.Symbol | gdw_gene_id %in% cosmic_fusions$Synonyms | gdw_ensembl_id %in% cosmic_fusions$Synonyms)) %>% 
   mutate(anno_has_cosmic_fusion = (anno_gup_cosmic_fusion | anno_gdw_cosmic_fusion)) 
 
-## Cancer related gene annotation ----
+## Cancer related gene annotation
 #for onco/TSG/fusions together with oncokb and grobner
+cancer_related_genes = get_cancer_genes()
 
 fusion_overview = fusion_overview %>% 
   mutate(anno_gup_cosmic = (gup_gene_id %in% filter(cancer_related_genes,source=="cosmic")$gene_id
@@ -449,7 +454,9 @@ fusion_overview = fusion_overview %>% mutate(anno_cancer_gene_db =
 fusion_overview = fusion_overview %>% mutate(anno_in_any_cancer = 
                                                (anno_partner_cancer_chimera | anno_cancer_gene_db | anno_grobner_druggable))
 
-## TODO LATER: properties from STAR Fusion
+
+
+## properties from STAR Fusion
 if(analysis_type=="starfusion") {
   fusion_overview = fusion_overview %>%
     mutate(gup_pfam_kinase = grepl("kinase",PFAM_LEFT,fixed=T)) %>%
@@ -471,12 +478,6 @@ if("fusion" %in% names(cohort)) {
   
   fusion_overview$clinically_validated=F
   fusion_overview$clinically_validated_reciprocal=F
-  
-  #harmonize gene identifiers / names
-  cohort=cohort %>% mutate(
-    left_gene = str_replace(str_replace(left_gene,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"),
-    right_gene = str_replace(str_replace(right_gene,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH"))
-    
   for(pid in filter(cohort,fusion_status)$patient_identifier) {
     patient = filter(cohort,patient_identifier==pid)
     
@@ -499,9 +500,6 @@ if("fusion" %in% names(cohort)) {
 if(length(Sys.glob(clinically_relevant_fusion_genes_path))==1){
   clinrel_fusion_genes = read.table(clinically_relevant_fusion_genes_path,header=T,sep="\t")
   clinrel_fusion_genes = c(clinrel_fusion_genes$Gene.stable.ID,clinrel_fusion_genes$Gene.name) %>% unique()
-  
-  clinrel_fusion_genes = str_replace(str_replace(clinrel_fusion_genes,fixed("IGH@"),"IGH"),fixed("IGH-@-ext"),"IGH")
-  
   
   fusion_overview = fusion_overview %>% 
     mutate(anno_gup_clinrel_fusion_gene = (gup_gene_id %in% clinrel_fusion_genes | gup_ensembl_id %in% clinrel_fusion_genes)) %>%
@@ -576,29 +574,9 @@ for(id in cohort$patient_identifier) {
 ### End of additional modalities
 
 ## Merge cohort fusion level results with the annotation from fusion overview ----
-
-
-## healthy chimera from SF or FC
-fusion_overview = fusion_overview %>%
-  mutate(anno_healthy_chimera = (anno_healthy_chimera_fusioncatcher==T|anno_healthy_chimera_starfusion==T),
-         anno_healthy_chimera = ifelse(is.na(anno_healthy_chimera),F,anno_healthy_chimera),
-         anno_healthy_chimera = patient_fusion %in% filter(fusion_overview,anno_healthy_chimera==T)$patient_fusion)
-
-
-#check fusion_overview %>% filter(is.na(anno_healthy_chimera))
-
-# Make sure to not include the columns uq to either tool to prevent explosion of rows
-prediction_ignore_shared_cols=c("annots","identifier","fusion_identifier","anno_healthy_chimera","fusion_bp_distance")
-
-ignore_anno_cols = c(paste0(prediction_ignore_shared_cols,"_starfusion"),paste0(prediction_ignore_shared_cols,"_fusioncatcher"),
-                     "anno_starfusion_cancer_db","anno_fusioncatcher_cancer")
-
-fusion_overview_anno_only = fusion_overview  %>% select(-ignore_anno_cols) %>%
-  select(patient_fusion, tumor_type_label, primary_group, primary_group_label, supergroup, supergroup_label, primary_group_shorthand_label,
+fusion_overview_anno_only = fusion_overview  %>% select(patient_fusion, tumor_type_label, primary_group, primary_group_label, supergroup, supergroup_label, primary_group_shorthand_label,
                                                         contains("anno"),contains("fpkm"),contains("fpkm_log"),contains("snv"),contains("cytoband"),
                                                         contains("clinrel"),contains("clinically_validated")) %>% unique() 
-
-#check fusion_overview_anno_only$patient_fusion %>% unique() %>% length() == fusion_overview_anno_only %>% nrow()
 
 cohort_report = cohort_fusion_level_results %>% 
   left_join(fusion_overview_anno_only, by="patient_fusion")
@@ -607,10 +585,12 @@ cohort_report=cohort_report %>% mutate(tumor_normal_diff_mean = (tumor_af_mean-n
 
 ## Summarise over rna level predictions
 
+if(analysis_type=="starfusion") { 
   #if annotated as pfam kinase any time
-# cohort_report = cohort_report %>% 
-#    mutate(anno_gup_pfam_kinase = patient_fusion %in% filter(fusion_overview,a)$patient_fusion) %>% 
-#    mutate(anno_gdw_pfam_kinase = patient_fusion %in% filter(fusion_overview,gdw_pfam_kinase)$patient_fusion)
+  cohort_report = cohort_report %>% 
+    mutate(anno_gup_pfam_kinase = patient_fusion %in% filter(fusion_overview,gup_pfam_kinase)$patient_fusion) %>% 
+    mutate(anno_gdw_pfam_kinase = patient_fusion %in% filter(fusion_overview,gdw_pfam_kinase)$patient_fusion)
+}
 
 cohort_report = cohort_report %>%
   left_join( cohort %>% select(patient_id,tumor_id,normal_id,rna_id), by="patient_id")
@@ -687,6 +667,5 @@ if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,precise_confident
 
 write.table(cohort_report,cohort_report_path,quote = FALSE,sep = "\t",row.names=FALSE)
 write.table(fusion_overview,fusion_overview_anno_path,quote = FALSE,sep = "\t",row.names=FALSE)
-
 
 

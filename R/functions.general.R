@@ -142,7 +142,11 @@ fusion_promiscuous = function(fusion_summary,attr_name=NULL){
 }
 
 ## External resources
-get_cosmic_genes = function() {
+
+get_cosmic_genes = function(cosmic_path_input=NULL) {
+  if(!is.null(cosmic_path_input)){
+    cosmic_path=cosmic_path_input
+  }
   cosmic = read.table(cosmic_path,header=T,sep="\t")
   
   cosmic_genes = strsplit(paste(cosmic$Gene.Symbol,cosmic$Synonyms,sep=",",collapse = ","),",")[[1]]
@@ -162,8 +166,16 @@ get_cosmic_genes = function() {
   cosmic_genes = cosmic_genes %>%  dplyr::mutate(oncogene = gene_id %in% oncogenes, tsg = gene_id %in% tsg)
   return(cosmic_genes)
 }                          
-get_cancer_genes = function() {
-  cosmic_genes=get_cosmic_genes()
+get_cancer_genes = function(resources_dir=NULL) {
+  if(!is.null(resources_dir)){
+    library(stringi)
+    map_template_vars=c('${resources_dir}'=resources_dir)
+    cosmic_path = stri_replace_all_fixed(cosmic_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+    oncokb_path = stri_replace_all_fixed(oncokb_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+    grobner_recurrent_path = stri_replace_all_fixed(grobner_recurrent_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+  }
+  
+  cosmic_genes=get_cosmic_genes(cosmic_path)
   cosmic_genes$source="cosmic"
   
   cancer_genes = cosmic_genes #gene id, oncogene, tsg
@@ -191,7 +203,7 @@ get_cancer_genes = function() {
   
   cancer_genes=rbind(cancer_genes, grobner_onco[,names(cancer_genes)], grobner_tsg[,names(cancer_genes)])
   
-  
+  cancer_genes = cancer_genes %>% filter(gene_id!="")
   return(cancer_genes)
 }
 

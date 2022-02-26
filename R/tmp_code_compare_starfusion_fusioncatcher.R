@@ -396,3 +396,20 @@
   
   
   
+  completed_patients = read.table("~/fusion_sq/fusion_level.completed.lst")
+  
+  completed_patients = completed_patients %>% separate(col="V1",sep="\\.",into=c("filename","rna_tool","patient_identfier","ext"))
+  completed_patients = completed_patients %>% separate(col="patient_identfier", sep="_.",into=c("patient_id","rna_id"),remove=F)
+  
+  cohort_report_old = read.table("~/PycharmProjects/wdl_pipeline/fusion_pilot/fusion_sq_grape/reports_20210411/cohort_report.tsv",sep = "\t", header=T)
+  
+  cohort_report_old = cohort_report_old %>% separate_rows(gup_sf_breakpoint, sep=", ")%>% separate_rows(gdw_sf_breakpoint, sep=", ") 
+  cohort_report_old = cohort_report_old %>% mutate(patient_fusion=str_replace(patient_fusion,fixed("IGH-@-ext"),"IGH"))
+  
+  cohort_report_old %>% filter(!patient_id %in% filter(completed_patients,rna_tool=="starfusion")$patient_id) %>% select(patient_id) %>% unique()
+
+  cohort = read.table(patient_table_path,sep = "\t", header=T,stringsAsFactors = T)
+
+  cohort %>% filter(!patient_id %in% filter(completed_patients,rna_tool=="fusioncatcher")$patient_id) %>% select(patient_id) %>% unique()
+  
+  
