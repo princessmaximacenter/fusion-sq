@@ -8,62 +8,25 @@
 # patient-oriented overview
 # recurrence analyses
 
-# Changelog
-## 2022-02-26
-##  path local overrides and docker version
-## goal is to get uq fusions / uq gene pairs df that also selects best rna-supported prediction 
-## to remake tables and know what sv to present
-
-
-if(FALSE) {
-  #local
-  source("~/fusion_sq/R/default.conf")
-  source("~/fusion_sq/R/default.docker.local.conf")
-  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
-}
-if(FALSE){
-  #set paths for hpc
-  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
-  ## HPC config overrides
-  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.docker.conf")
-  #HPC doesnt use argparser but patient specific config instead 
-  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.conf")
-}
-
-if(!exists("patient_table_path") | length(Sys.glob(patient_table_path))!=1) {
-  print(paste0("Cohort file not available: ",patient_table_path))
-  #quit()
-}
-
 suppressPackageStartupMessages({
   library(tidyverse, quietly=TRUE)
   library(stringr, quietly=TRUE)
   library(dplyr)
-  library(stringi)
 })
 
-source(paste0(script_dir,"functions.general.R")) 
+source("R/default.conf") #in script dir
+source(paste0(script_dir,"functions.general.R"))
 
-map_template_vars=c('${resources_dir}'=resources_dir,'${input_dir}'=input_dir,'${output_dir}'=output_dir,
-                    '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir)
+## Input
+patient_metadata = read.table(patient_table,sep = "\t", header=T,stringsAsFactors = T)
+patient_labels_lookup = patient_metadata[,c("patient_id","patient_label")]
+patient_metadata_cols = c("patient_id","patient_label","primary_group","primary_group_shorthand_label","supergroup","supergroup_label","fga","max_cna","min_cna")
+patient_metadata_cols=patient_metadata_cols[patient_metadata_cols %in% names(patient_metadata)]
 
-reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
-base_dir =  stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+cohort_report =  read.table(paste0(reports_dir,cohort_report_outfile),header=T,sep="\t")
+fusion_overview =  read.table(paste0(reports_dir,fusion_overview_anno_outfile),header=T,sep="\t")
 
-map_template_vars=c(map_template_vars,'${reports_dir}'=reports_dir,'${base_dir}'=base_dir)
-
-#tmp dots
-map_template_vars_merged = c('${analysis_type}'=".merged", map_template_vars )
-
-map_template_vars = map_template_vars_merged
-
-#input
-cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(map_template_vars), map_template_vars,vectorize=F)
-fusion_overview_anno_path = stri_replace_all_fixed(fusion_overview_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
-
-## Output 
-
-##TODO templates
+## Output
 round_digits=2
 
 #cohort analyses
@@ -84,183 +47,21 @@ multi_tools_not_same_sv_path=paste0(reports_dir,"multi_tools_not_same_sv.tsv")
 
 ### START 
 
-test_data=F
-
-## Input 
-cohort_report =  read.table(cohort_report_path,header=T,sep="\t")
-
-## TODO:
-cohort_report = cohort_report %>% mutate( anno_clinically_relevant = (clinically_validated|clinically_validated_reciprocal))
-cohort_report$anno_sv_population =NA
-
-## add helper vars for more sophisticated analyses
-cohort_report = cohort_report %>% 
-  mutate(helper_reciprocal_fusion_name = paste0(gdw_gene_id,"--",gup_gene_id),
-         helper_reciprocal_patient_fusion = paste0(patient_id,"_",helper_reciprocal_fusion_name),
-         helper_reciprocal_patient_sv_id = paste0(patient_id,"_",gdw_sv_merged,"_",gup_sv_merged),
-         helper_reciprocal_patient_fusion_sv = paste0(patient_id,"_",gdw_sv_merged,"_",gup_sv_merged,"_",helper_reciprocal_fusion_name))
-
-#remove if another patient-fusion-sv is validated by both tools
-helper_both = cohort_report  %>% filter(rna_tools=="fusioncatcher, starfusion")
-helper_sf_only = cohort_report %>% filter(rna_tools=="starfusion" & !patient_fusion %in% helper_both$patient_fusion)
-helper_fc_only = cohort_report %>% filter(rna_tools=="fusioncatcher" & !patient_fusion %in% helper_both$patient_fusion)
-helper_fc_any = cohort_report %>% filter(grepl("fusioncatcher",rna_tools))
-helper_sf_any = cohort_report %>% filter(grepl("starfusion",rna_tools))
-
-
-# reciprocal fusion with identical SV
-#always select "patient_fusion_sv %in% helper ...$patient_fusion_sv" to get unique  
-reciprocal_fusion_same_sv = cohort_report %>% 
-  filter( (patient_fusion_sv %in% helper_sf_only$patient_fusion_sv & 
-             patient_fusion %in% helper_fc_only$helper_reciprocal_patient_fusion & 
-             patient_sv_id %in% helper_fc_only$helper_reciprocal_patient_sv_id) | 
-            (patient_fusion_sv %in% helper_fc_only$patient_fusion_sv & 
-               patient_fusion %in% helper_sf_only$helper_reciprocal_patient_fusion & 
-               patient_sv_id %in% helper_sf_only$helper_reciprocal_patient_sv_id))
-
-reciprocal_fusion_same_sv %>% select(patient_fusion,rna_tools,helper_reciprocal_patient_fusion)
-
-#For the ones below: by filtering out the patient_fusion_sv from above, prevent overlap between these dataframes
-
-#both but different sv => check manually
-same_fusion_different_sv = cohort_report %>% 
-  filter( !patient_fusion_sv %in% reciprocal_fusion_same_sv$patient_fusion_sv) %>%
-  filter( (patient_fusion_sv %in% helper_sf_only$patient_fusion_sv & 
-             patient_fusion %in% helper_fc_only$patient_fusion ) | 
-            (patient_fusion_sv %in% helper_fc_only$patient_fusion_sv & 
-               patient_fusion %in% helper_sf_only$patient_fusion)) 
-
-# TODO write df for user
-merging_issue = same_fusion_different_sv %>%
-  filter(
-    (rna_tools=="fusioncatcher" & patient_fusion_sv %in% filter(same_fusion_different_sv,rna_tools=="starfusion")$patient_fusion_sv) |
-      (rna_tools=="starfusion" & patient_fusion_sv %in% filter(same_fusion_different_sv,rna_tools=="fusioncatcher")$patient_fusion_sv) ) %>%
-  select(patient_fusion,rna_tools,contains('breakpoint'),patient_fusion_sv,sv_names) %>% arrange(patient_fusion_sv)
-# TODO write df for user
-
-merging_issue
-
-
-cohort_report = cohort_report %>% 
-  mutate(rna_consensus = (patient_fusion_sv %in% c(helper_both$patient_fusion_sv,
-                                                             reciprocal_fusion_same_sv$patient_fusion_sv,
-                                                             reciprocal_fusion_same_sv$helper_reciprocal_patient_fusion_sv)))
-
-cohort_report = cohort_report %>% mutate(high_confidence_rna_dna = rna_consensus & precise_confident)
-cohort_report = cohort_report %>% mutate(not_high_confidence_rna_dna = !patient_fusion %in% filter(cohort_report,high_confidence_rna_dna)$patient_fusion)
-
-
-#### 
 ## uq fusions
 
-if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,high_confidence_rna_dna))+uq_fusions(filter(cohort_report,not_high_confidence_rna_dna)))) {
+if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,precise_confident))+uq_fusions(filter(cohort_report,not_precise_confident)))) {
   print("Warning: high and low conf sets could not be split")
 } else {
-  cohort_report_hc = annotate_variant_class_fractions(filter(cohort_report,high_confidence_rna_dna))
-  cohort_report_lc = annotate_variant_class_fractions(filter(cohort_report,not_high_confidence_rna_dna))
-  cohort_report = rbind(cohort_report_hc,cohort_report_lc) %>% unique()
+  cohort_report_hc = annotate_variant_class_fractions(filter(cohort_report,precise_confident))
+  cohort_report_lc = annotate_variant_class_fractions(filter(cohort_report,not_precise_confident))
+  cohort_report = rbind(cohort_report_hc,cohort_report_lc)
 }
 
-## Make uq patient fusion ----
-make_uq_patient_fusion_df = function(cohort_report) {
-  
-  uq_fusions_df = cohort_report
-  ### Duplicate rows with same patient_fusion 
-  #Impact: will not affects counts but can affect tables and SV properties
-  
-  #most relevant for the high conf WGS & RNA 
-  ## for WGS:  multiple tools, precise location  (precise_confident from starfusion OR fusioncatcher)
-  ### previous version with single RNA tool has code to select by tumor-AF
-  ## for RNA: same SV supporting same gene pair of two tools, joining predictions by the patient_fusion_sv match
-  ### in some cases multiple combinations => if both tools have a precise and less precise combi then can get 4 rows of those different combinations TT,FF,TF,FT.
-  
-  duplicate_fusions = uq_fusions_df %>% filter(patient_fusion %in% uq_fusions_df[duplicated(uq_fusions_df$patient_fusion),]$patient_fusion)
-  
-  #Selection:
-  ## 1) if exists precise_confident by both RNA tools 
-  ## 2) highest tumor AF 
-  ## Chose for selecting single one instead of merging AF/length because there was a reason they were not merged before
-  
-  both_rna_tools_precise_confident = duplicate_fusions %>% filter(precise_confident_fusioncatcher&precise_confident_starfusion) %>% 
-    group_by(patient_fusion) %>% summarize(max_tumor_af = max(tumor_af_mean,na.rm=T))
-  
-  single_rna_tools_precise_confident = duplicate_fusions %>% filter(!patient_fusion %in% both_rna_tools_precise_confident$patient_fusion) 
-  
-  fc_precise_confident = single_rna_tools_precise_confident %>% filter(precise_confident_fusioncatcher) %>% 
-    group_by(patient_fusion) %>% summarize(max_tumor_af = max(tumor_af_mean,na.rm=T))
-  sf_precise_confident = single_rna_tools_precise_confident %>% filter(precise_confident_starfusion) %>% 
-    group_by(patient_fusion) %>% summarize(max_tumor_af = max(tumor_af_mean,na.rm=T))
-  
-  neither_precise_confident =  duplicate_fusions %>% filter(!precise_confident_fusioncatcher&!precise_confident_starfusion) %>% 
-    group_by(patient_fusion) %>% summarize(max_tumor_af = max(tumor_af_mean,na.rm=T))
-   
-  both_rna_tools_precise_confident_keep = uq_fusions_df %>% merge(both_rna_tools_precise_confident,by.x=c("patient_fusion","tumor_af_mean"),by.y=c("patient_fusion","max_tumor_af"))
-  fc_precise_confident_keep = uq_fusions_df %>% merge(fc_precise_confident,by.x=c("patient_fusion","tumor_af_mean"),by.y=c("patient_fusion","max_tumor_af"))
-  sf_precise_confident_keep = uq_fusions_df %>% merge(sf_precise_confident,by.x=c("patient_fusion","tumor_af_mean"),by.y=c("patient_fusion","max_tumor_af"))
-  neither_precise_confident_keep = uq_fusions_df %>% merge(neither_precise_confident,by.x=c("patient_fusion","tumor_af_mean"),by.y=c("patient_fusion","max_tumor_af"))
-  
-  
-  duplicate_fusions_keep = rbind(both_rna_tools_precise_confident_keep,fc_precise_confident_keep,sf_precise_confident_keep,neither_precise_confident_keep) %>% unique()
-  
-  
-  still_duplicated = duplicate_fusions_keep %>% filter(patient_fusion %in% duplicate_fusions_keep[duplicated(duplicate_fusions_keep$patient_fusion),]$patient_fusion)
-  
-  if(nrow(still_duplicated)!=0) {
-    print("WARNING duplicates not removed")
-    #print(still_duplicated %>% select(patient_fusion_sv,contains('precise'),tumor_af_mean,contains('location')))
-  #TODO: 
-    #location: intron-intron takes priority over intron-consensus I thnk. 
-    #composite cannot be resolved
-  }
-  
-  uq_fusions_df = uq_fusions_df %>% filter(!patient_fusion %in% duplicate_fusions$patient_fusion)
-  uq_fusions_df=rbind(duplicate_fusions_keep,uq_fusions_df)
-  
-  
-  #check if still the same
-  if(uq_fusions_df %>% uq_fusions() != cohort_report %>% uq_fusions()) {
-    print("ERROR fusions not identical numbers as start, returning original df")
-    return(cohort_report)
-  }
-  
-  #reannotate, ambiguous should be removed now
-  uq_fusions_df = annotate_variant_class_fractions(uq_fusions_df)
-  
-  if(nrow(filter(uq_fusions_df,ambiguous))!=0) {  
-    print("WARNING ambiguous not removed")
-   # print(filter(uq_fusions_df,ambiguous))
-  }
-  
-  
-  #after selecting higest tumor AF only one patient-fusion-sv remains
-  
-  ## Apply labels
-  uq_fusions_df = annotate_labels_variant_type(uq_fusions_df)
-  uq_fusions_df = annotate_labels_cancer_common(uq_fusions_df)
-  
-  ##Adjust sv type if complex
-  uq_fusions_df = uq_fusions_df %>% mutate(svtype_label = ifelse(grepl(", ",svtype),"complex",svtype))
-  uq_fusions_df$svtype_label = factor(uq_fusions_df$svtype_label)
-  
-  return(uq_fusions_df)
-}
+## unique gene pairs dataframe is like recurrence but with more annotation and less emphasis on numbers?
+#only needed for high confidence fusions = same sv
 
-if(FALSE) {
-uq_fusions_df$helper_patient_fusion_sv_rna = paste0(uq_fusions_df$patient_fusion_sv,"_",
-                                                    uq_fusions_df$fusion_predictions_fusioncatcher,"_",
-                                                    uq_fusions_df$fusion_predictions_starfusion)
-
-## TODO problem: 
-uq_fusions_df[duplicated(uq_fusions_df$helper_patient_fusion_sv_rna),]
-
-uq_fusions_hc %>% filter(grepl("IGH",patient_fusion)) 
-}
-
-
-uq_fusions_hc = make_uq_patient_fusion_df(filter(cohort_report,high_confidence_rna_dna))
-uq_fusions_lc = make_uq_patient_fusion_df(filter(cohort_report,not_high_confidence_rna_dna))
-
-
+uq_fusions_hc = make_uq_patient_fusion_df(cohort_report_hc)
+uq_fusions_lc = make_uq_patient_fusion_df(cohort_report_lc)
 
 if(!test_data) {
   #manual steps
@@ -301,17 +102,11 @@ write.table(uq_fusions_df,uq_fusions_path,quote=F,row.names = F,col.names = T,se
 write.table(selected_duplicates_hc,selected_duplicates_hc_path,quote=F,row.names = F,col.names = T,sep="\t")
 
 
-## Make unique gene pairs df ----
-
+## Make unique gene pairs df
 ## distinct fusions
 ## for HC from the uq fusions hc (selected fusions), and from all for LC fusions
 ## Flag to distinguish high_confidence=T set  
-
-## TODO: uq_fusions_hc$clinically_validated 
-
-uq_fusions_df = uq_fusions_df %>% mutate(anno_clinically_relevant = clinically_validated | clinically_validated_reciprocal)
-
-uq_gene_pairs_hc = make_uq_gene_pairs(uq_fusions_df %>% filter(high_confidence))
+uq_gene_pairs_hc = make_uq_gene_pairs(uq_fusions_hc)
 uq_gene_pairs_lc = make_uq_gene_pairs(cohort_report_lc)
 
 #these sets can overlap, but should not be the same patients
@@ -340,7 +135,7 @@ uq_gene_pairs_df = annotate_labels_cancer_common(uq_gene_pairs_df)
 
 write.table(uq_gene_pairs_df,uq_gene_pairs_path,quote=F,row.names = F,col.names = T,sep="\t")
 
-if(FALSE) {
+
 
 ## few fusions are identified confidently in some patients and not in others. 
 ## reasons: single tool, multi tools but bp did not overlap often in SD/ALU for patients low confidence
@@ -368,11 +163,8 @@ multi_tools_not_same_sv = cohort_report %>% filter(grepl(",",tools_any_wgs)&!gre
 
 write.table(multi_tools_not_same_sv,multi_tools_not_same_sv_path,col.names=T,quote=F,row.names = F,sep="\t")
 
-}
 
-### Patient count table ----
 ## MAKE patient count table of fusion burden and selected fusions per patient 
-fusion_overview =  read.table(fusion_overview_anno_path,header=T,sep="\t")
 
 patient_fusion_cnt_table = cnt_fusions(fusion_overview,"predicted_cnt") %>% 
   left_join(cnt_fusions(fusion_overview %>% filter(FFPM>0.1),"predicted_ffpm_cnt"),by="patient_id") %>%
@@ -468,7 +260,7 @@ patient_oriented_table[is.na(patient_oriented_table$max_cna_fusion),c("max_cna_f
 write.table(patient_oriented_table,patient_oriented_table_path,quote=F,row.names = F,sep="\t")
 
 
-## Recurrence tables ----
+## Recurrence tables
 
 recurrence_table = fusion_cnt_per_attr(fusion_overview,"patient_id","chimeric_transcript")  %>%
   filter(chimeric_transcript>1) %>%
@@ -488,7 +280,7 @@ recurrence_table[is.na(recurrence_table)]=0
 write.table(recurrence_table,recurrence_table_path,quote=F,row.names = F,sep="\t")
 
 
-### MANUSCRIPT exports ### ----
+### MANUSCRIPT exports ###
 
 columns_export = c("fusion_name","patient_label","variant_type",
                    "anno_has_onco_or_tsg","anno_clinically_relevant",
@@ -537,12 +329,8 @@ if(!test_data) {
   uq_fusions_df = rbind(uq_fusions_df,add_fusion_manually[,names(uq_fusions_df)])
 }
 
-uq_fusions_df = uq_fusions_df %>% unique()
-
 columns_export=columns_export[columns_export %in% names(uq_fusions_df)]
 
-
-### 2022-02 TODO:
 #exclude normal and have high conf or 2 tools + composite
 table1_uq_fusions = uq_fusions_df %>% filter(((low_af|somatic_variant)&high_confidence)|
                                                         (somatic_variant&(grepl(",",tools_any_wgs)&gup_location=="composite")))

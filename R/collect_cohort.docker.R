@@ -5,7 +5,7 @@
 # Prepare for cohort-level calculations and annotation
 
 ## Update 2022-01-08 path local overrides and docker version
-
+## update 2022-02-26 removed tmp code
 
 if(FALSE){
   #set paths for hpc
@@ -290,73 +290,3 @@ cohort_results = cohort_results %>% dplyr::rename(tool= gup_tool) %>% select(-gd
 
 write.table(cohort_results,cohort_results_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
-
-
-
-
-
-
-
-quit()
-
-  
-if(FALSE) {
-## old 
-
-for(analysis_type in c("starfusion","fusioncatcher")){
-  #Temporary code:
-  #not needed anymore if dots are added to proper location in template
-  analysis_type_filename_patient=paste0(analysis_type,".")
-  ## end temp
-  for(id in cohort$patient_identifier) {
-    patient = filter(cohort,patient_identifier==id)
-    
-    #note order matters, this overrides the cohort analysis type filename 
-    #tmp; can be removed if dot is placed right
-    #character string for patient id because could be factor
-    map_template_vars_patient = c('${analysis_type}'=analysis_type_filename_patient,
-                                  map_template_vars,
-                                  '${patient_identifier}'=as.character(patient$patient_identifier) )
-    
-    fusion_anno_table_path = stri_replace_all_fixed(fusion_anno_table_path_template,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    fusion_level_results_path = stri_replace_all_fixed(fusion_level_results_path_template,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    matching_bp_path = stri_replace_all_fixed(matching_bp_path_template,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    pairwise_overlap_merged_path = stri_replace_all_fixed(pairwise_overlap_merged_path_template ,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    supporting_svs_path = stri_replace_all_fixed(supporting_svs_path_template,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    
-    
-    # to be able to annotate with overlap variable
-    
-    if(length(Sys.glob(fusion_anno_table_path))!=1){ next()}
-    matching_intervals_path = stri_replace_all_fixed(matching_intervals_path_template,names(map_template_vars_patient), map_template_vars_patient,vectorize=F)
-    
-    if(length(Sys.glob(matching_intervals_path))!=1){ next()}
-    
-    matching_intervals_table = read.table(matching_intervals_path,header=T, sep="\t")
-    
-    fusion_anno_table=read.table(fusion_anno_table_path,header=T,sep="\t")
-    fusion_anno_table = fusion_anno_table %>% left_join(matching_intervals_table[,c("identifier","overlap_gup_gdw_adjacent_intron","overlap_gup_gdw_genebody")], by=c("identifier"))
-    fusion_anno_table$patient_id = patient$patient_id
-    fusion_anno_table$rna_tools=analysis_type
-    cohort_predictions = rbind_no_colmatch(fusion_anno_table,cohort_predictions)
-    
-    
-    if(length(Sys.glob(matching_bp_path))!=1){ next()}
-    
-    matching_bps = read.table(matching_bp_path,header=T,sep="\t") 
-    if(nrow(matching_bps)>0) {
-      matching_bps$patient_id = patient$patient_id 
-      matching_bps$rna_tools=analysis_type
-      cohort_results = rbind_no_colmatch(cohort_results,as.data.frame(matching_bps))
-      
-      fusion_level_results = read.table(fusion_level_results_path,header=T,sep="\t") 
-      fusion_level_results$patient_id = patient$patient_id
-      fusion_level_results$rna_tools=analysis_type
-      cohort_fusion_level_results = rbind_no_colmatch(cohort_fusion_level_results,as.data.frame(fusion_level_results))
-      
-      
-    }
-  }
-}
-
-}

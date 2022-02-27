@@ -58,7 +58,6 @@ base_dir =  stri_replace_all_fixed(base_dir_template,names(map_template_vars), m
 map_template_vars=c(map_template_vars,'${reports_dir}'=reports_dir,'${base_dir}'=base_dir)
 
 ##  merge fusion annotation ends up in reports dir too
-## TODO implement in collect cohort file and add 'else add single file' 
 
 #tmp dots
 map_template_vars_merged = c('${analysis_type}'=".merged",
@@ -82,10 +81,11 @@ cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(ma
 fusion_overview_anno_path = stri_replace_all_fixed(fusion_overview_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
 
 ## supporting SVs with gene annotation
-#cohort_supporting_svs_anno_path = stri_replace_all_fixed(cohort_supporting_svs_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+cohort_supporting_svs_anno_path = stri_replace_all_fixed(cohort_supporting_svs_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F)
 
 
 #Gene expression & z scores 
+#nb typo
 #gene_expression_analysis_path = paste0(reports_dir,gene_expression_zcore_outfile)
 
 # CNA and SNV files => see config
@@ -622,8 +622,8 @@ cohort_report=cohort_report %>% annotate_labels_cancer_common() %>% annotate_lab
 ##refactor labels
 cohort_report=cohort_report %>% mutate(
   high_confidence=precise_confident,
-  anno_has_onco_or_tsg = (anno_has_oncogene | anno_has_tsg)#,
-  #anno_clinically_relevant = (clinically_validated|clinically_validated_reciprocal)
+  anno_has_onco_or_tsg = (anno_has_oncogene | anno_has_tsg),
+  anno_clinically_relevant = (clinically_validated|clinically_validated_reciprocal)
   )
 
 if("gup_fpkm_zscore_group" %in% names(cohort_report)){
@@ -672,7 +672,6 @@ if("gup_fpkm_zscore_group" %in% names(cohort_report)){
 }
 
 
-
 #annotate somatic only and germline only based on if precise confident, or of no precise conf exists
 cohort_report = cohort_report %>% mutate(not_precise_confident = !patient_fusion %in% filter(cohort_report,precise_confident)$patient_fusion)
 
@@ -684,9 +683,49 @@ if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,precise_confident
   cohort_report = rbind(cohort_report_hc,cohort_report_lc)
 }
 
-
+nrow(cohort_report)
 write.table(cohort_report,cohort_report_path,quote = FALSE,sep = "\t",row.names=FALSE)
 write.table(fusion_overview,fusion_overview_anno_path,quote = FALSE,sep = "\t",row.names=FALSE)
 
 
+if(FALSE) {
+#what happens here? => remove lc if hc exists and annotate somatic only etc 
 
+removed_fusion_svs = cohort_fusion_level_results %>% filter(!patient_fusion_sv %in% cohort_report$patient_fusion_sv& (
+  !patient_fusion %in% cohort_report_lc$patient_fusion & 
+    patient_fusion %in% cohort_report_hc$patient_fusion )) %>%
+  filter( patient_fusion %in% filter(cohort_report_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion)
+
+removed_fusion_svs %>% select(patient_fusion_sv,rna_tools,precise_confident,tools)
+
+cohort_report%>% filter(clinically_validated|clinically_validated_reciprocal) %>% filter(patient_fusion %in% removed_fusion_svs$patient_fusion) %>% 
+  select(patient_fusion_sv,rna_tools,precise_confident,tools)
+
+# where is variant type == tumor specific annotated?
+# shouldnt I also use the RNA tools info in choosing high/low conf rather than WGS only?
+# similarly -> only if not "fusioncatcher, starfusion" exists then include the fc/sf only in the cohort report 
+
+cohort_report = cohort_report %>% mutate(rna_consensus = (rna_tools == "fusioncatcher, starfusion"))
+cohort_report = cohort_report %>% mutate(not_rna_consensus = !patient_fusion %in% filter(cohort_report,rna_consensus)$patient_fusion)
+
+uq_fusions(cohort_report)
+(uq_fusions(filter(cohort_report,precise_confident&rna_consensus))+uq_fusions(filter(cohort_report,not_precise_confident|not_rna_consensus)))
+
+if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,precise_confident&rna_consensus))+uq_fusions(filter(cohort_report,not_precise_confident|not_rna_consensus)))) {
+  print("Warning: high and low conf sets could not be split")
+} else {
+  cohort_report_hc = annotate_variant_class_fractions(filter(cohort_report,precise_confident&rna_consensus))
+  cohort_report_lc = annotate_variant_class_fractions(filter(cohort_report,not_precise_confident|not_rna_consensus))
+  cohort_report = rbind(cohort_report_hc,cohort_report_lc)
+}
+
+
+#doing it like this removes less so does not work. 
+#TODO later: needed for nice tables but not for numbers which count patient_fusions!
+nrow(cohort_report)
+removed_fusion_svs = cohort_fusion_level_results %>% filter(!patient_fusion_sv %in% cohort_report$patient_fusion_sv) 
+removed_fusion_svs %>% select(patient_fusion_sv,rna_tools,precise_confident,tools)
+
+cohort_report%>% filter(clinically_validated|clinically_validated_reciprocal) %>% filter(patient_fusion %in% removed_fusion_svs$patient_fusion) %>% 
+  select(patient_fusion_sv,rna_tools,precise_confident,tools)
+}
