@@ -275,6 +275,8 @@ for(analysis_type in c("starfusion","fusioncatcher")){
 #cohort %>% filter(!patient_id %in% cohort_results$patient_id)
 
 supporting_svs_df$patient_sv_name = paste0(supporting_svs_df$patient_id,"_",supporting_svs_df$sv_name)
+supporting_svs_df$patient_sv_merged = paste0(supporting_svs_df$patient_id,"_",supporting_svs_df$sv_merged)
+supporting_svs_df$partner_sv_name = paste0(supporting_svs_df$patient_id,"_",supporting_svs_df$partner)
 
 write.table(supporting_svs_df,cohort_supporting_svs_path,quote = F,sep = "\t",row.names=F,col.names = T)
 

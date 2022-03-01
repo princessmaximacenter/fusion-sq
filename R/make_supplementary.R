@@ -61,6 +61,14 @@ map_template_vars = map_template_vars_merged
 cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(map_template_vars), map_template_vars,vectorize=F)
 fusion_overview_anno_path = stri_replace_all_fixed(fusion_overview_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
 
+fga_anno = read.table("~/fusion_sq/fga_anno.tmp.tsv",sep="\t",header=T)
+
+cohort = read.table(patient_table_path,sep = "\t", header=T,stringsAsFactors = F)
+cohort$supergroup=cohort$domain
+cohort$supergroup_label=cohort$domain_label
+
+
+
 ## Output 
 
 ##TODO templates
@@ -89,9 +97,8 @@ test_data=F
 ## Input 
 cohort_report =  read.table(cohort_report_path,header=T,sep="\t")
 
-## TODO:
-cohort_report = cohort_report %>% mutate( anno_clinically_relevant = (clinically_validated|clinically_validated_reciprocal))
-cohort_report$anno_sv_population =NA
+## na consensus =>already done in anno cohort report and fusion anno, here just candidate repoting
+if(FALSE) {
 
 ## add helper vars for more sophisticated analyses
 cohort_report = cohort_report %>% 
@@ -149,9 +156,9 @@ cohort_report = cohort_report %>%
 cohort_report = cohort_report %>% mutate(high_confidence_rna_dna = rna_consensus & precise_confident)
 cohort_report = cohort_report %>% mutate(not_high_confidence_rna_dna = !patient_fusion %in% filter(cohort_report,high_confidence_rna_dna)$patient_fusion)
 
-
+}
 #### 
-## uq fusions
+## uq fusions ----
 
 if(uq_fusions(cohort_report)!=(uq_fusions(filter(cohort_report,high_confidence_rna_dna))+uq_fusions(filter(cohort_report,not_high_confidence_rna_dna)))) {
   print("Warning: high and low conf sets could not be split")
@@ -277,10 +284,14 @@ if(!test_data) {
 }
 
 if(nrow(uq_fusions_hc)>0){
+  uq_fusions_hc$high_confidence_rna_dna = TRUE
   uq_fusions_hc$high_confidence = TRUE
+  
 }
 if(nrow(uq_fusions_lc)>0){
+  uq_fusions_lc$high_confidence_rna_dna = FALSE
   uq_fusions_lc$high_confidence = FALSE
+  
 }
 
 uq_fusions_df = rbind(uq_fusions_hc,uq_fusions_lc)
@@ -293,6 +304,9 @@ uq_fusions_df = annotate_labels_genes(uq_fusions_df)
 uq_fusions_df = annotate_labels_cancer_common(uq_fusions_df)
 
 uq_fusions_df = unique(uq_fusions_df)
+
+uq_fusions_df = uq_fusions_df %>% mutate(anno_clinically_relevant = clinically_validated | clinically_validated_reciprocal)
+
 selected_duplicates_hc = cohort_report_hc %>% filter(patient_fusion %in% cohort_report_hc[duplicated(cohort_report_hc$patient_fusion),c("patient_fusion")]) %>%
   mutate(selected = patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>%
   select(patient_fusion,tumor_af_mean,normal_af_mean,svtype,tools,selected) 
@@ -307,12 +321,67 @@ write.table(selected_duplicates_hc,selected_duplicates_hc_path,quote=F,row.names
 ## for HC from the uq fusions hc (selected fusions), and from all for LC fusions
 ## Flag to distinguish high_confidence=T set  
 
-## TODO: uq_fusions_hc$clinically_validated 
+make_uq_gene_pairs = function(uq_fusions_df) {
+  
+  uq_gene_pairs_df = uq_fusions_df  %>% 
+    group_by(fusion_name,somatic_variant,germline_variant,low_af) %>% 
+    summarize(svtype = toString(unique(sort(unlist(strsplit(svtype,", "))))),
+              tumor_af = mean(tumor_af_mean,na.rm = T),
+              normal_af = mean(normal_af_mean,na.rm = T),
+              svlen = mean(svlen,na.rm=T),
+              patient_ids=toString(unique(sort(patient_id))),
+              patient_cnt=length(unique(patient_id)),
+              .groups="keep")
+  
+  ## duplicate fusions are labelled as ambiguous
+  duplicate_fusions = uq_gene_pairs_df[duplicated(uq_gene_pairs_df$fusion_name),]
+  duplicate_fusions = uq_fusions_df %>% filter(fusion_name %in% duplicate_fusions$fusion_name) %>% 
+    group_by(fusion_name) %>% 
+    summarize(svtype = toString(unique(sort(unlist(strsplit(svtype,", "))))),
+              tumor_af = mean(tumor_af_mean,na.rm = T),
+              normal_af = mean(normal_af_mean,na.rm = T),
+              svlen = mean(svlen,na.rm=T),
+              patient_ids=toString(unique(sort(patient_id))),
+              patient_cnt=length(unique(patient_id)),
+              .groups="keep")
+  
+  duplicate_fusions = duplicate_fusions %>% mutate(somatic_variant=F,germline_variant=F,low_af=F)
+  uq_gene_pairs_df = uq_gene_pairs_df %>% filter(!fusion_name %in% duplicate_fusions$fusion_name)
+  uq_gene_pairs_df=rbind(duplicate_fusions,uq_gene_pairs_df)
+  
+  if(nrow(uq_gene_pairs_df[duplicated(uq_gene_pairs_df$fusion_name),])!=0) {
+    print("WARNING duplicates not removed")
+    print(uq_gene_pairs_df[duplicated(uq_gene_pairs_df$fusion_name),])
+  }
+  
+  
+  ## Apply labels
+  uq_gene_pairs_df = annotate_labels_variant_type(uq_gene_pairs_df)
+  
+  ## add annotation after grouping
+  annotation_cols = c("anno_healthy_chimera","anno_healthy_chimera_all","anno_cancer_chimera","anno_has_onco_or_tsg","anno_clinically_relevant","
+                      anno_has_oncogene","anno_has_tsg","anno_has_kinase","anno_cancer_gene_db")
+  annotation_cols = annotation_cols[annotation_cols %in% names(uq_fusions_df)]
+  fusion_name_labels = uq_fusions_df %>% select(fusion_name, all_of(annotation_cols)) %>% unique()
+  uq_gene_pairs_df = uq_gene_pairs_df %>% left_join(fusion_name_labels,by="fusion_name")
+  
+  #add sv level annotation
+  fusions_svs_map = uq_fusions_df %>% select(fusion_name,patient_fusion_sv,anno_sv_population)
+  uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(anno_sv_population = fusion_name %in% 
+                                                   filter(fusions_svs_map,anno_sv_population)$fusion_name)
+  
+  #will not add clinically validated annotation since not present
+  uq_gene_pairs_df = annotate_labels_cancer_common(uq_gene_pairs_df)
+  
+  ##Adjust sv type if complex
+  uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(svtype_label = ifelse(grepl(", ",svtype),"complex",svtype))
+  uq_gene_pairs_df$svtype_label = factor(uq_gene_pairs_df$svtype_label)
+  
+  return(uq_gene_pairs_df)
+}
 
-uq_fusions_df = uq_fusions_df %>% mutate(anno_clinically_relevant = clinically_validated | clinically_validated_reciprocal)
-
-uq_gene_pairs_hc = make_uq_gene_pairs(uq_fusions_df %>% filter(high_confidence))
-uq_gene_pairs_lc = make_uq_gene_pairs(cohort_report_lc)
+uq_gene_pairs_hc = make_uq_gene_pairs(uq_fusions_df %>% filter(high_confidence_rna_dna))
+uq_gene_pairs_lc = make_uq_gene_pairs(filter(cohort_report,not_high_confidence_rna_dna))
 
 #these sets can overlap, but should not be the same patients
 #also see later df multi-tool support
@@ -320,7 +389,9 @@ fusions_hc_and_lc = intersect(uq_gene_pairs_hc$fusion_name,uq_gene_pairs_lc$fusi
 
 
 uq_gene_pairs_hc$high_confidence = TRUE
+uq_gene_pairs_hc$high_confidence_rna_dna = TRUE
 uq_gene_pairs_lc$high_confidence = FALSE
+uq_gene_pairs_lc$high_confidence_rna_dna = FALSE
 
 uq_gene_pairs_df = rbind(uq_gene_pairs_hc,uq_gene_pairs_lc)
 
@@ -330,11 +401,15 @@ if(uq_uq_fusions(cohort_report)!=length(unique(uq_gene_pairs_df$fusion_name))) {
 }
 
 #mutate clinrel/fusion positve patient not part of function
-uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(patient_clinrel_fusion = fusion_name %in%
-                                                 filter(cohort_report,patient_clinrel_fusion)$fusion_name)
-uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(clinically_validated = 
-                                                 fusion_name %in% filter(cohort_report,clinically_validated|clinically_validated_reciprocal)$fusion_name)
+# NOTE: This flags all fusions that occur in clinrel, not necessarily the right one!
+#uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(patient_clinrel_fusion = fusion_name %in%
+#                                                 filter(cohort_report,patient_clinrel_fusion)$fusion_name)
 
+uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(patient_clinrel_fusion = grepl(paste0(filter(cohort,fusion_status)$patient_id,collapse = "|"),patient_ids))
+
+uq_gene_pairs_df = uq_gene_pairs_df %>% mutate(clinically_validated = 
+                                                 fusion_name %in% filter(cohort_report,clinically_validated|clinically_validated_reciprocal)$fusion_name,
+                                               anno_clinically_relevant = clinically_validated)
 ## redo to get the clin.rel too
 uq_gene_pairs_df = annotate_labels_cancer_common(uq_gene_pairs_df)
 
@@ -371,9 +446,11 @@ write.table(multi_tools_not_same_sv,multi_tools_not_same_sv_path,col.names=T,quo
 }
 
 ### Patient count table ----
-## MAKE patient count table of fusion burden and selected fusions per patient 
+## Make patient count table of fusion burden and selected fusions per patient 
 fusion_overview =  read.table(fusion_overview_anno_path,header=T,sep="\t")
 
+#prev code
+if(FALSE) {
 patient_fusion_cnt_table = cnt_fusions(fusion_overview,"predicted_cnt") %>% 
   left_join(cnt_fusions(fusion_overview %>% filter(FFPM>0.1),"predicted_ffpm_cnt"),by="patient_id") %>%
   left_join(cnt_fusions(cohort_report,"validated_cnt"),by = "patient_id") %>%
@@ -420,10 +497,64 @@ patient_fusion_cnt_table = patient_fusion_cnt_table %>% mutate(patient_clinrel_f
 patient_fusion_cnt_table$somatic_low_af_hc_cnt = patient_fusion_cnt_table$somatic_hc_cnt+patient_fusion_cnt_table$low_af_hc_cnt
 ## to display also low confidence low af + somatic on top of the high conf low af + somatic
 patient_fusion_cnt_table$any_somatic_low_af_cnt = patient_fusion_cnt_table$somatic_low_af_hc_cnt + patient_fusion_cnt_table$somatic_not_hc_cnt+patient_fusion_cnt_table$low_af_not_hc_cnt
+}
 
+
+get_patient_fusion_cnt_table_short = function(cohort_report,fusion_overview,patient_metadata) {
+  patient_metadata_cols = c("patient_id","patient_label","primary_group","primary_group_shorthand_label","supergroup","supergroup_label","fga","max_cna","min_cna","fusion_positive_patient")
+  patient_metadata_cols_missing=patient_metadata_cols[!patient_metadata_cols %in% names(patient_metadata)]
+  patient_metadata_cols=patient_metadata_cols[patient_metadata_cols %in% names(patient_metadata)]
+  
+  patient_fusion_cnt_table = cnt_fusions(fusion_overview,"predicted_cnt") %>% 
+    left_join(cnt_fusions(fusion_overview %>% filter(FFPM>0.1),"predicted_ffpm_cnt"),by="patient_id") %>%
+    left_join(cnt_fusions(cohort_report,"validated_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident),"precise_confident_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident&somatic_variant_only),"somatic_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident&low_af_only),"low_af_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident&germline_variant_only),"germline_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident&ambiguous),"ambiguous_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(precise_confident&somatic_variant_only&(anno_has_oncogene|anno_has_tsg)),"somatic_hc_oncotsg_cnt"),by = "patient_id") %>%
+    
+    left_join(cnt_fusions(cohort_report %>% filter(not_precise_confident),"not_precise_confident_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(not_precise_confident&somatic_variant_only),"somatic_not_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(not_precise_confident&low_af_only),"low_af_not_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(not_precise_confident&germline_variant_only),"germline_not_hc_cnt"),by = "patient_id") %>%
+    left_join(cnt_fusions(cohort_report %>% filter(not_precise_confident&ambiguous),"ambiguous_not_hc_cnt"),by = "patient_id") %>%
+    
+    left_join(cnt_fusions(cohort_report %>% filter(clinically_validated|clinically_validated_reciprocal),"clinical_cnt"),by = "patient_id") %>%
+    left_join(patient_metadata %>% select(patient_metadata_cols),by = "patient_id") %>%
+    arrange(-predicted_cnt, -validated_cnt)
+  
+  patient_fusion_cnt_table[is.na(patient_fusion_cnt_table)]=0
+  
+  patient_fusion_cnt_table$patient_id = factor(patient_fusion_cnt_table$patient_id)
+  
+  patient_fusion_cnt_table$primary_group = factor(patient_fusion_cnt_table$primary_group)
+  patient_fusion_cnt_table$primary_group_shorthand_label = factor(patient_fusion_cnt_table$primary_group_shorthand_label)
+  
+  patient_fusion_cnt_table$supergroup = factor(patient_fusion_cnt_table$supergroup)
+  patient_fusion_cnt_table$supergroup_label = factor(patient_fusion_cnt_table$supergroup_label)
+  
+  ## to distinguish in plots
+  patient_fusion_cnt_table = patient_fusion_cnt_table %>% mutate(patient_clinrel_fusion = clinical_cnt>0)
+  ## to display fusions not germline = low af + somatic
+  patient_fusion_cnt_table$somatic_low_af_hc_cnt = patient_fusion_cnt_table$somatic_hc_cnt+patient_fusion_cnt_table$low_af_hc_cnt
+  ## to display also low confidence low af + somatic on top of the high conf low af + somatic
+  patient_fusion_cnt_table$any_somatic_low_af_cnt = patient_fusion_cnt_table$somatic_low_af_hc_cnt + patient_fusion_cnt_table$somatic_not_hc_cnt+patient_fusion_cnt_table$low_af_not_hc_cnt
+  
+  return(patient_fusion_cnt_table)
+}
+
+
+patient_fusion_cnt_table = get_patient_fusion_cnt_table_short(filter(cohort_report,rna_consensus),filter(fusion_overview,rna_consensus), cohort)
+patient_fusion_cnt_table = patient_fusion_cnt_table %>% left_join(fga_anno)
 
 ## Add names of  fusions 
+
 patient_oriented_table = patient_fusion_cnt_table
+
+## TODO later
+if(FALSE) {
 
 patient_oriented_table = patient_oriented_table %>% left_join(cohort_report %>% filter( clinically_validated | clinically_validated_reciprocal)  %>%
                                                                 group_by(patient_id,primary_group_shorthand_label) %>% 
@@ -464,23 +595,25 @@ patient_oriented_table = patient_oriented_table %>% left_join(max_cna_fusion,by 
 patient_oriented_table[is.na(patient_oriented_table$max_cna_fusion),c("max_cna_fusion")]=0
 
 }
+}
+
+patient_oriented_table %>% keep(is.numeric) %>% colSums()
+patient_oriented_table %>% filter(patient_clinrel_fusion) %>% keep(is.numeric) %>% colSums()
 
 write.table(patient_oriented_table,patient_oriented_table_path,quote=F,row.names = F,sep="\t")
 
 
 ## Recurrence tables ----
 
-recurrence_table = fusion_cnt_per_attr(fusion_overview,"patient_id","chimeric_transcript")  %>%
-  filter(chimeric_transcript>1) %>%
-  left_join(fusion_cnt_per_attr(cohort_report,"patient_id","any_wgs"),by="fusion_name") %>%
-  left_join(fusion_cnt_per_attr(filter(cohort_report,precise_confident),"patient_id","high_confidence"),by="fusion_name") %>%
-  left_join(fusion_cnt_per_attr(filter(cohort_report,somatic_variant),"patient_id","any_tumor_specific"),by="fusion_name") %>%
-  left_join(fusion_cnt_per_attr(filter(cohort_report,somatic_variant&precise_confident),"patient_id","high_confidence_tumor_specific"),by="fusion_name") %>%
-  left_join(fusion_cnt_per_attr(filter(cohort_report,germline_variant),"patient_id","any_germline"),by="fusion_name") %>%
-  left_join(fusion_cnt_per_attr(filter(cohort_report,germline_variant&precise_confident),"patient_id","high_confidence_germline"),by="fusion_name") %>%
-  
-#  left_join(fusion_cnt_per_attr(filter(cohort_report,somatic_variant&grepl(",",tools)),"patient_id","validated_somatic_2tools_cnt"),by="fusion_name") %>%
-#  left_join(fusion_cnt_per_attr(filter(cohort_report,germline_variant&grepl(",",tools)),"patient_id","validated_germline_2tools_cnt"),by="fusion_name") %>%
+recurrence_table = fusion_cnt_per_attr(filter(fusion_overview,rna_consensus),"patient_id","chimeric_transcript")  %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus),"patient_id","any_wgs"),by="fusion_name") %>%
+  filter(chimeric_transcript>1|any_wgs>1) %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus&precise_confident),"patient_id","high_confidence"),by="fusion_name") %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus&somatic_variant),"patient_id","any_tumor_specific"),by="fusion_name") %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus&somatic_variant&precise_confident),"patient_id","high_confidence_tumor_specific"),by="fusion_name") %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus&germline_variant),"patient_id","any_germline"),by="fusion_name") %>%
+  left_join(fusion_cnt_per_attr(filter(cohort_report,rna_consensus&germline_variant&precise_confident),"patient_id","high_confidence_germline"),by="fusion_name") %>%
+
   arrange(-high_confidence)
 
 recurrence_table[is.na(recurrence_table)]=0
@@ -499,7 +632,7 @@ columns_export = c("fusion_name","patient_label","variant_type",
                    "tumor_type_label","primary_group_shorthand_label","supergroup_label",
                    "gup_fpkm_zscore_supergroup","gdw_fpkm_zscore_supergroup","gup_fpkm_supergroup_pval","gdw_fpkm_supergroup_pval",
                    "gup_copy_ratio_l2fc_mean","gdw_copy_ratio_l2fc_mean",
-                   #"gup_start_copy_ratio_l2fc","gdw_end_copy_ratio_l2fc",
+                   "gup_start_copy_ratio_l2fc","gdw_end_copy_ratio_l2fc",
                    "gup_location","gdw_location",
                    "high_confidence",
                    "gup_sv_merged_coordinate","gdw_sv_merged_coordinate",
@@ -517,11 +650,11 @@ columns_export = c("fusion_name","patient_label","variant_type",
                    "tx_gdw_transcript_id","tx_gdw_involved_fragment","tx_gdw_involved_fraction_mean"
                    )
 
-uq_fusions_df = read.table(paste0(reports_dir,uq_fusions_outfile),header=T,sep="\t")
-uq_gene_pairs_df = read.table(paste0(reports_dir,uq_gene_pairs_outfile),header=T,sep="\t")
-patient_fusion_cnt_table = read.table(paste0(reports_dir,patient_oriented_table_outfile),header=T,sep="\t")
-patients_high_fusion_burden = patient_fusion_cnt_table[patient_fusion_cnt_table$somatic_low_af_hc_cnt>=7,c("patient_id")]
-cohort_report = read.table(paste0(reports_dir,cohort_report_outfile),header=T,sep="\t")
+uq_fusions_df = read.table(uq_fusions_path,header=T,sep="\t")
+uq_gene_pairs_df = read.table(uq_gene_pairs_path,header=T,sep="\t")
+patient_fusion_cnt_table = read.table(patient_oriented_table_path,header=T,sep="\t")
+patients_high_fusion_burden = patient_fusion_cnt_table[patient_fusion_cnt_table$somatic_low_af_hc_cnt>=5,c("patient_id")]
+cohort_report = read.table(cohort_report_path,header=T,sep="\t")
 
 if(!test_data) {
   #manual steps
@@ -539,20 +672,21 @@ if(!test_data) {
 
 uq_fusions_df = uq_fusions_df %>% unique()
 
-columns_export=columns_export[columns_export %in% names(uq_fusions_df)]
-
-
-### 2022-02 TODO:
+### 2022-02 filter rna consensus first
 #exclude normal and have high conf or 2 tools + composite
-table1_uq_fusions = uq_fusions_df %>% filter(((low_af|somatic_variant)&high_confidence)|
-                                                        (somatic_variant&(grepl(",",tools_any_wgs)&gup_location=="composite")))
+table1_uq_fusions = uq_fusions_df %>% filter(rna_consensus==T) %>%
+  filter(((low_af|somatic_variant)&high_confidence)|
+           (somatic_variant & ( (grepl(",",tools_any_wgs_fusioncatcher)&gup_location_fusioncatcher=="composite") | 
+                                  (grepl(",",tools_any_wgs_starfusion)&gup_location_starfusion=="composite"))))
 
 table1_uq_fusions = annotate_labels_cancer_common(table1_uq_fusions)
 
 table1_uq_fusions = table1_uq_fusions %>% mutate(
   patient_high_fusion_burden = (patient_id %in% patients_high_fusion_burden))
 
-table1_uq_fusions = patient_labels_lookup %>% merge(table1_uq_fusions, by = "patient_id") 
+table1_uq_fusions = cohort[,c("patient_id","patient_label")] %>% merge(table1_uq_fusions, by = "patient_id") 
+
+columns_export=columns_export[columns_export %in% names(table1_uq_fusions)]
 
 table1_uq_fusions_export = table1_uq_fusions %>% 
   select(all_of(columns_export)) %>%

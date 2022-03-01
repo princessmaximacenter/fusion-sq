@@ -7,7 +7,7 @@ output:
     toc_depth: 3
     toc_float: true
   pdf_document: default
-date: '2021-07-28'
+date: '2022-02-28'
 editor_options: 
   chunk_output_type: console
 ---
@@ -27,6 +27,15 @@ knitr::opts_chunk$set(echo = F,
 
 ```
 
+```{r}
+source("~/fusion_sq/R/default.conf")
+source("~/fusion_sq/R/default.docker.local.conf")
+source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+
+source(paste0(script_dir,"functions.general.R")) 
+
+```
+
 ```{r include=F}
 ## Settings
 #library(GenomicRanges)
@@ -40,27 +49,41 @@ library(RColorBrewer)
 library(DiagrammeR)
 library(GenomicRanges, quietly=TRUE)
 
-
-#if("dplyr" %in% (.packages())){
-#  detach("package:dplyr", unload=TRUE) 
-#  detach("package:plyr", unload=TRUE) 
-#} 
-#library(plyr)
 library(dplyr)
+library(stringi)
 
-#color blind friendly palette
-cbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
-#cbPalette <- c("#000000", "#E69F00", "#56B4E9",  "#D55E00", "#CC79A7","#009E73","#F0E442","#0072B2")
 
-wdir="~/PycharmProjects/wdl_pipeline/fusion_pilot/"
-output_dir = paste0(wdir,"fusion_sq_grape/")
-source(paste0(output_dir,"default.conf"))
-source(paste0(output_dir,"functions_general.R"))
+map_template_vars=c('${resources_dir}'=resources_dir,'${input_dir}'=input_dir,'${output_dir}'=output_dir,
+                    '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir)
 
-patient_metadata = read.table(patient_table,sep = "\t", header=T,na.strings = c("NA","N/A","","NULL"))
-patient_labels_lookup = patient_metadata[,c("patient_id","patient_label")]
+reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+base_dir =  stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
 
-primary_group_shorthand_table = read.table(paste0(resources_dir,"diagnoses_icdo3_prigroup.mapping.tsv"),header=T,sep = "\t") %>% dplyr::rename(primary_group_shorthand_label = primary_group_label)
+map_template_vars=c(map_template_vars,'${reports_dir}'=reports_dir,'${base_dir}'=base_dir)
+
+#tmp dots
+map_template_vars = c('${analysis_type}'=".merged",map_template_vars )
+
+cohort_report_path = stri_replace_all_fixed(cohort_report_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+fusion_overview_anno_path = stri_replace_all_fixed(fusion_overview_anno_path_template,names(map_template_vars), map_template_vars,vectorize=F) 
+patient_oriented_table_path = paste0(reports_dir,patient_oriented_table_outfile)
+recurrence_table_path = paste0(reports_dir,recurrence_table_outfile)
+
+uq_fusions_path = paste0(reports_dir,uq_fusions_outfile)
+uq_gene_pairs_path =  paste0(reports_dir,uq_gene_pairs_outfile)
+
+
+## Read in cohort
+cohort = read.table(patient_table_path,sep = "\t", header=T,stringsAsFactors = F)
+
+cohort$supergroup=cohort$domain
+cohort$supergroup_label=cohort$domain_label
+uq_gene_pairs_df %>% filter(fusion_name=="DUS2--NFATC3")
+fga_anno = read.table("~/fusion_sq/fga_anno.tmp.tsv",sep="\t",header=T)
+
+patient_labels_lookup = cohort[,c("patient_id","patient_label")]
+
+primary_group_shorthand_table = read.table(paste0("/Users/ianthevanbelzen/Documents/resources/diagnoses_icdo3_prigroup.mapping.tsv"),header=T,sep = "\t") %>% dplyr::rename(primary_group_shorthand_label = primary_group_label)
 
 fusion_properties_validated=c("patient_id","fusion_name","tumor_af_mean","svtype","tool","svcnt_mean","gup_sf_breakpoint","gdw_sf_breakpoint","gup_distance_spread","gdw_distance_spread","tx_gup_transcript_id","tx_gup_involved_exon","tx_gup_exon_l2fc_mean","tx_gdw_transcript_id","tx_gdw_involved_exon","tx_gdw_exon_l2fc_mean")
 
@@ -71,9 +94,9 @@ fusion_display_properties = c("fusion_name","patient_id","tumor_type_label","pri
 
 Process cohort table, metadata, filtering
 ```{r}
-cohort_report =  read.table(paste0(reports_dir,cohort_report_outfile),header=T,sep="\t")
+cohort_report =  read.table(cohort_report_path,header=T,sep="\t")
 
-fusion_overview =  read.table(paste0(reports_dir,fusion_overview_anno_outfile),header=T,sep="\t")
+fusion_overview =  read.table(fusion_overview_anno_path,header=T,sep="\t")
 
 #for background figure validation vs FFPM
 fusion_summary = fusion_overview  %>% group_by(patient_id, clinically_validated, fusion_name, patient_fusion,tumor_type_label,domain_label,primary_group_shorthand_label) %>% 
@@ -82,29 +105,38 @@ fusion_summary = fusion_overview  %>% group_by(patient_id, clinically_validated,
 
 
 #for breakpoint precision stats
-cohort_results = read.table(paste0(reports_dir,cohort_matching_results_outfile),sep = "\t", header=T)
-cohort_results = cohort_results %>% mutate(fusion_positive_patient = patient_id %in% filter(patient_metadata,fusion_status)$patient_id)
+#cohort_results = read.table(paste0(reports_dir,cohort_matching_results_outfile),sep = "\t", header=T)
+#cohort_results = cohort_results %>% mutate(patient_clinrel_fusion = patient_id %in% filter(cohort,fusion_status)$patient_id)
 
 
 cancer_db_vars = cohort_report %>% select_at(vars(contains("cosmic"),contains("chimerseq"),anno_mitelman)) %>% names()
 
 #count table per patient 
-patient_fusion_cnt_table = read.table(paste0(reports_dir,patient_oriented_table_outfile),header=T,sep="\t")
-patients_high_fusion_burden = patient_fusion_cnt_table[patient_fusion_cnt_table$somatic_low_af_hc_cnt>=7,c("patient_id")]
+patient_fusion_cnt_table = read.table(patient_oriented_table_path,header=T,sep="\t")
+patients_high_fusion_burden = patient_fusion_cnt_table[patient_fusion_cnt_table$somatic_low_af_hc_cnt>=5,c("patient_id")]
 
-recurrence_table = read.table(paste0(reports_dir,recurrence_table_outfile),header=T,sep="\t")
+recurrence_table = read.table(recurrence_table_path,header=T,sep="\t")
 fusion_partner_recurrence_table = read.table(paste0(reports_dir,fusion_partner_recurrence_table_outfile),header=T,sep="\t")
 promiscuous_table = read.table(paste0(reports_dir,promiscuous_table_outfile),header=T,sep="\t")
 
-uq_fusions_df = read.table(paste0(reports_dir,uq_fusions_outfile),header=T,sep="\t")
+uq_fusions_df = read.table(uq_fusions_path,header=T,sep="\t")
 ## for AF plots
 uq_fusions_df$tumor_normal_af = uq_fusions_df$tumor_af_mean - uq_fusions_df$normal_af_mean
 uq_fusions_df$svtype_label = factor(uq_fusions_df$svtype_label)
 
+uq_fusions_df = uq_fusions_df %>% rowwise() %>% mutate(gup_chromosome = strsplit(gup_sv_merged_coordinate,":",fixed=T)[[1]][1],
+                                          gdw_chromosome = strsplit(gdw_sv_merged_coordinate,":",fixed=T)[[1]][1]) %>% as.data.frame()
+
+fusion_bp_in_cn_amplified = uq_fusions_df  %>%  filter_at(vars(contains("copy_ratio")), any_vars(.>1.58)) 
+fusion_bp_in_cn_amplified %>% uq_fusions() 
+
+uq_fusions_df = uq_fusions_df %>% mutate(flag_in_cn_amplified = patient_fusion_sv %in% fusion_bp_in_cn_amplified$patient_fusion_sv)
+
+
 uq_fusions_hc = filter(uq_fusions_df,high_confidence==TRUE)
 
 
-uq_gene_pairs_df = read.table(paste0(reports_dir,uq_gene_pairs_outfile),header=T,sep="\t")
+uq_gene_pairs_df = read.table(uq_gene_pairs_path,header=T,sep="\t")
 ## for AF plots
 uq_gene_pairs_df$tumor_normal_af = uq_gene_pairs_df$tumor_af - uq_gene_pairs_df$normal_af
 uq_gene_pairs_df$svtype_label = factor(uq_gene_pairs_df$svtype_label)
@@ -126,12 +158,8 @@ uq_gene_pairs_lc = filter(uq_gene_pairs_df,high_confidence==FALSE)
 uq_gene_pairs_hc_lc = uq_gene_pairs_df %>% filter(fusion_name %in% intersect(uq_gene_pairs_hc$fusion_name,uq_gene_pairs_lc$fusion_name))
 
 
-selected_fusion_candidates = read.table(paste0(reports_dir,fusions_cancer_related_outfile),header=T,sep="\t")
-
-
-
-wgs_tool_present_path = paste0(wdir,"cohort.v4.wgs_tool.present.tsv")
-wgs_tool_present_df = read.table(wgs_tool_present_path,header=T,sep="\t")
+#wgs_tool_present_path = paste0(wdir,"cohort.v4.wgs_tool.present.tsv")
+#wgs_tool_present_df = read.table(wgs_tool_present_path,header=T,sep="\t")
 
 print_fraction = function(fusion_summary, filter_criteria,remove_recurrent=F) {
   subset = fusion_summary %>% dplyr::filter_(filter_criteria)
@@ -155,42 +183,71 @@ genes_long = make_gene_exp_long(cohort_report) %>% left_join(patient_labels_look
 # Cohort overview 
 Cohort last updated: 2020-10-29 => 2021-04-02 patient exclusions => 2021-07-26 diagnoses updates and patient exclusions
 
+## Replication timing analysis
+
+```{r}
+
+ cohort_report %>% filter(precise_confident & somatic_variant & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colSums(na.rm = T)
+  
+  cohort_report %>% filter(precise_confident & germline_variant & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colSums(na.rm = T)
+  
+  cohort_report %>% filter(precise_confident & low_af & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colSums(na.rm = T)
+  
+  
+  cohort_report %>% filter(precise_confident & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colSums(na.rm = T)
+  
+  cohort_report %>% filter(precise_confident & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colMeans(na.rm = T)
+  
+  cohort_report %>% filter(precise_confident & somatic_variant & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colMeans(na.rm = T)
+  
+  cohort_report %>% filter(precise_confident & germline_variant & rna_tools=="fusioncatcher, starfusion") %>% 
+    select(c("rt_switch_bp","rt_early_bp","rt_late_bp")) %>% colMeans(na.rm = T)
+  
+ 
+```
+
 ## Patient counts and distribution over cancer types
 
 ```{r results="asis"}
 
-cat(paste0("* ","Cohort size: ",uq_patients(patient_metadata), 
+cat(paste0("* ","Cohort size: ",uq_patients(cohort), 
 "\n"))
 
-cat(paste0("* ","Tumor types: ",length(unique(filter(patient_metadata,!is.na(tumor_type))$tumor_type)),"\n"))
-cat(paste0("* ","Cancer type groups: ",length(unique(filter(patient_metadata,!is.na(primary_group))$primary_group)),"\n"))
+cat(paste0("* ","Tumor types: ",length(unique(filter(cohort,!is.na(tumor_type))$tumor_type)),"\n"))
+cat(paste0("* ","Cancer type groups: ",length(unique(filter(cohort,!is.na(primary_group))$primary_group)),"\n"))
 
-cat(paste0("* ","Patient missing tumor type: ",uq_patients(filter(patient_metadata,is.na(tumor_type))),"\n"))
-cat(paste0("* ","Patient missing cancer type group: ",uq_patients(filter(patient_metadata,is.na(primary_group))),"\n"))
+cat(paste0("* ","Patient missing tumor type: ",uq_patients(filter(cohort,is.na(tumor_type))),"\n"))
+cat(paste0("* ","Patient missing cancer type group: ",uq_patients(filter(cohort,is.na(primary_group))),"\n"))
 
-cat(paste0("* ","Cancer type groups NOT represented: ",paste(primary_group_shorthand_table %>% filter(!primary_group %in% patient_metadata$primary_group) %>% select(primary_group_shorthand_label)),"\n"))
+cat(paste0("* ","Cancer type groups NOT represented: ",paste(primary_group_shorthand_table %>% filter(!primary_group %in% cohort$primary_group) %>% select(primary_group_shorthand_label)),"\n"))
 
 cat(paste0("* ",
-  uq_patients(filter(patient_metadata,fusion_status)),
+  uq_patients(filter(cohort,fusion_status)),
   " patients with clinically validated gene fusion",
 "\n"))
 
-cat(paste0("* ","Tumor types, patients with clin.rel fusion: ",length(unique(filter(patient_metadata,fusion_status)$tumor_type)),"\n"))
-cat(paste0("* ","Cancer type groups, patients with clin.rel  fusion: ",length(unique(filter(patient_metadata,fusion_status)$primary_group)),"\n"))
-cat(paste0("* ","Cancer type groups, patients with clin.rel fusion: ",paste0(unique(filter(patient_metadata,fusion_status)$primary_group_shorthand_label),collapse="; "),"\n"))
+cat(paste0("* ","Tumor types, patients with clin.rel fusion: ",length(unique(filter(cohort,fusion_status)$tumor_type)),"\n"))
+cat(paste0("* ","Cancer type groups, patients with clin.rel  fusion: ",length(unique(filter(cohort,fusion_status)$primary_group)),"\n"))
+cat(paste0("* ","Cancer type groups, patients with clin.rel fusion: ",paste0(unique(filter(cohort,fusion_status)$primary_group_shorthand_label),collapse="; "),"\n"))
 
 cat(paste0("* ",
-  uq_patients(filter(patient_metadata,is.na(fusion_status))),
+  uq_patients(filter(cohort,is.na(fusion_status))),
   " patients with unknown fusion status",
 "\n"))
 
 cat(paste0("* ",
-  uq_patients(filter(patient_metadata,!fusion_status)),
+  uq_patients(filter(cohort,!fusion_status)),
   " patients without clinically relevant fusions",
 "\n"))
 
-cat(paste0("* ","Tumor types, patients NO clin.rel fusion: ",length(unique(filter(patient_metadata,!fusion_status&!is.na(tumor_type))$tumor_type)),"\n"))
-cat(paste0("* ","Cancer type groups, patients NO clin.rel fusion: ",length(unique(filter(patient_metadata,!fusion_status &!is.na(primary_group))$primary_group)),"\n"))
+cat(paste0("* ","Tumor types, patients NO clin.rel fusion: ",length(unique(filter(cohort,!fusion_status&!is.na(tumor_type))$tumor_type)),"\n"))
+cat(paste0("* ","Cancer type groups, patients NO clin.rel fusion: ",length(unique(filter(cohort,!fusion_status &!is.na(primary_group))$primary_group)),"\n"))
 
 ```
 
@@ -208,18 +265,18 @@ precise+confident filter = proximate bp, 2 or more tools, same SV
 
 ```{r results="asis"}
 cat(paste0("* ","Fusions predicted: ",
-           uq_fusions(fusion_overview),"\n"))
+           uq_fusions(fusion_overview %>% filter(rna_consensus==T)),"\n"))
 cat(paste0("  * ","median predicted: ",
 median(patient_fusion_cnt_table$predicted_cnt),"\n"))
 
 cat(paste0("* ","Fusions predicted: ",
-           uq_fusions(filter(fusion_overview,FFPM>0.1)),"\n"))
+           uq_fusions(filter(fusion_overview,rna_consensus&FFPM>0.1)),"\n"))
 cat(paste0("  * ","median predicted: ",
 median(patient_fusion_cnt_table$predicted_ffpm_cnt),"\n"))
 
 
 cat(paste0("* ","WGS supported fusions: ",
-           uq_fusions(cohort_report),"\n"))
+           uq_fusions(cohort_report %>% filter(rna_consensus)),"\n"))
 cat(paste0("  * ","median supported: ",
 median(patient_fusion_cnt_table$validated_cnt),"\n"))
 
@@ -236,13 +293,19 @@ cat(paste0("  * not fullgene and not overlap genebody: ",
            uq_fusions(filter(cohort_report,overlap_gup_gdw_genebody & (gup_location=="fullgene" | gdw_location=="fullgene"))),"\n"))
 
 cat(paste0("  * precise+confident: ",
-           uq_fusions(filter(cohort_report,precise_confident)),"\n"))
+           uq_fusions(filter(cohort_report,high_confidence_rna_dna)),"\n"))
 cat(paste0("  * ","median high conf supported: ",
 median(patient_fusion_cnt_table$precise_confident_cnt),"\n"))
 cat(paste0("  * ","median high conf supported, non-zero: ",
 median(filter(patient_fusion_cnt_table,precise_confident_cnt>0)$precise_confident_cnt)
 ,"\n"))
 
+filter(cohort_report,high_confidence_rna_dna) %>% uq_fusions()
+filter(cohort_report,high_confidence_rna_dna) %>% uq_patients()
+
+filter(cohort_report,high_confidence_rna_dna&somatic_variant) %>% uq_fusions()
+
+filter(uq_fusions_hc,high_confidence_rna_dna&!patient_clinrel_fusion&anno_has_onco_or_tsg&somatic_variant) %>% uq_fusions()
 
 cat(paste0("* Tumor-specific: ",
            uq_fusions(filter(cohort_report,somatic_variant)),"\n"))
@@ -263,23 +326,23 @@ median(patient_fusion_cnt_table$somatic_hc_cnt),"\n"))
 cat(paste0("  * ","median high conf ts, non-zero: ",
 median(filter(patient_fusion_cnt_table,somatic_hc_cnt>0)$somatic_hc_cnt)
 ,"\n"))
-cat(paste0("  * ","median high conf ts, non-zero, !fusion_positive_patient: ",
-median(filter(patient_fusion_cnt_table,!fusion_positive_patient&somatic_hc_cnt>0)$somatic_hc_cnt)
+cat(paste0("  * ","median high conf ts, non-zero, !patient_clinrel_fusion: ",
+median(filter(patient_fusion_cnt_table,!patient_clinrel_fusion&somatic_hc_cnt>0)$somatic_hc_cnt)
 ,"\n"))
 
-cat(paste0("  * !fusion_positive_patient (==excl validation set)  ",
-           uq_fusions(filter(cohort_report,somatic_variant  & !fusion_positive_patient)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion (==excl validation set)  ",
+           uq_fusions(filter(cohort_report,somatic_variant  & !patient_clinrel_fusion)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise_confident: ",uq_fusions(filter(cohort_report,somatic_variant&!fusion_positive_patient&precise_confident)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident: ",uq_fusions(filter(cohort_report,somatic_variant&!patient_clinrel_fusion&precise_confident)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise_confident & onco/tsg: ",uq_fusions(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident & onco/tsg: ",uq_fusions(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise_confident & !onco/tsg & anno_cancer_chimera: ",uq_fusions(filter(cohort_report,somatic_variant&precise_confident&!(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient&anno_cancer_chimera)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident & !onco/tsg & anno_cancer_chimera: ",uq_fusions(filter(cohort_report,somatic_variant&precise_confident&!(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion&anno_cancer_chimera)),"\n"))
 
 
-cat(paste0("  * !fusion_positive_patient & 2 tools: ",uq_fusions(filter(cohort_report,somatic_variant&!fusion_positive_patient& grepl(",",tools_any_wgs))),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & 2 tools: ",uq_fusions(filter(cohort_report,somatic_variant&!patient_clinrel_fusion& grepl(",",tools_any_wgs))),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & location precise: ",uq_fusions(filter(cohort_report,somatic_variant&!fusion_positive_patient&location_precise)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & location precise: ",uq_fusions(filter(cohort_report,somatic_variant&!patient_clinrel_fusion&location_precise)),"\n"))
 
 
 ```
@@ -287,17 +350,30 @@ cat(paste0("  * !fusion_positive_patient & location precise: ",uq_fusions(filter
 Double check with uq fusions hc df
 
 ```{r results="asis"}
-cat(paste0("* tumor specific !fusion_positive_patient & precise_confident: ",
-filter(uq_fusions_hc,somatic_variant&!fusion_positive_patient) %>%nrow(),"\n"))
+cat(paste0("* tumor specific !patient_clinrel_fusion & precise_confident: ",
+filter(uq_fusions_hc,somatic_variant&!patient_clinrel_fusion) %>%nrow(),"\n"))
+
+
+cat(paste0("* tumor specific !patient_clinrel_fusion & precise_confident: ",
+filter(uq_fusions_hc,somatic_variant&!patient_clinrel_fusion) %>%nrow(),"\n"))
+
 
 ```
 
 ### Unique gene pairs
 
+```{r}
+nrow(uq_fusions_hc)
+nrow(uq_gene_pairs_hc)
+
+```
+
+
 => use the uq gene pairs dataframe
-1 ambiguous excluded
+1 ambiguous excluded ? 
 ```{r}
 uq_gene_pairs_hc_ambiguous
+
 ```
 
 ```{r}
@@ -335,12 +411,12 @@ cat(paste0("  * precise+confident ",
 cat(paste0("  *  clinically relevant incl reciprocals  ",
            uq_uq_fusions(filter(cohort_report,clinically_validated | clinically_validated_reciprocal)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient (==excl validation set)  ",
-           uq_uq_fusions(filter(cohort_report,somatic_variant  & !fusion_positive_patient)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion (==excl validation set)  ",
+           uq_uq_fusions(filter(cohort_report,somatic_variant  & !patient_clinrel_fusion)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise_confident: ",uq_uq_fusions(filter(cohort_report,somatic_variant&!fusion_positive_patient&precise_confident)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident: ",uq_uq_fusions(filter(cohort_report,somatic_variant&!patient_clinrel_fusion&precise_confident)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise_confident & onco/tsg: ",uq_uq_fusions(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident & onco/tsg: ",uq_uq_fusions(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion)),"\n"))
 
 cat(paste0("* Germline: ",
            uq_uq_fusions(filter(cohort_report,germline_variant)),"\n"))
@@ -417,9 +493,9 @@ cat(paste0("  * precise_confident: ",uq_patients(filter(cohort_report,somatic_va
 cat(paste0("  * clinically validated: ",uq_patients(filter(cohort_report,somatic_variant&(clinically_validated | clinically_validated_reciprocal))),"\n"))
 cat(paste0("  * clinically validated & precise_confident: ",uq_patients(filter(cohort_report,somatic_variant&(clinically_validated | clinically_validated_reciprocal)&precise_confident)),"\n"))
 
-cat(paste0("  * !fusion_positive_patient: ",uq_patients(filter(cohort_report,somatic_variant&!fusion_positive_patient)),"\n"))
-cat(paste0("  * !fusion_positive_patient & precise_confident: ",uq_patients(filter(cohort_report,somatic_variant&!fusion_positive_patient&precise_confident)),"\n"))
-cat(paste0("  * !fusion_positive_patient & precise_confident & onco/tsg: ",uq_patients(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion: ",uq_patients(filter(cohort_report,somatic_variant&!patient_clinrel_fusion)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident: ",uq_patients(filter(cohort_report,somatic_variant&!patient_clinrel_fusion&precise_confident)),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise_confident & onco/tsg: ",uq_patients(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion)),"\n"))
 cat(paste0("* germline: ",uq_patients(filter(cohort_report,germline_variant)),"\n"))
 cat(paste0("* low-AF: ",uq_patients(filter(cohort_report,low_af)),"\n"))
 ```
@@ -453,20 +529,20 @@ especially less germline in comparison to prev results, why?
 ```{r}
 prev_reports_dir="~/PycharmProjects/wdl_pipeline/fusion_pilot/fusion_sq_grape/reports_20210210/"
 prev_cohort_report =  read.table(paste0(prev_reports_dir,cohort_report_outfile),header=T,sep="\t")
-prev_cohort_report %>% filter(patient_id %in% patient_metadata$patient_id &   precise_confident&germline_variant) %>% select(patient_fusion,tool,svtype)
+prev_cohort_report %>% filter(patient_id %in% cohort$patient_id &   precise_confident&germline_variant) %>% select(patient_fusion,tool,svtype)
 
 ```
 
 Is it a difference in classification (no longer germline?) 
 ```{r}
-prev_cohort_report %>% filter(patient_id %in% patient_metadata$patient_id & precise_confident&germline_variant & !patient_fusion %in% filter(cohort_report,germline_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean)
+prev_cohort_report %>% filter(patient_id %in% cohort$patient_id & precise_confident&germline_variant & !patient_fusion %in% filter(cohort_report,germline_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean)
 ```
 
 or because they are not the same SV even if they share the interval?
 ```{r}
-prev_cohort_report %>% filter(patient_id %in% patient_metadata$patient_id & precise_confident&germline_variant & !patient_fusion %in% filter(cohort_report,precise_confident&germline_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean,gup_location,gdw_location)
+prev_cohort_report %>% filter(patient_id %in% cohort$patient_id & precise_confident&germline_variant & !patient_fusion %in% filter(cohort_report,precise_confident&germline_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean,gup_location,gdw_location)
 
-prev_cohort_report %>% filter(patient_id %in% patient_metadata$patient_id & precise_confident&somatic_variant & !patient_fusion %in% filter(cohort_report,precise_confident&somatic_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean,gup_location,gdw_location)
+prev_cohort_report %>% filter(patient_id %in% cohort$patient_id & precise_confident&somatic_variant & !patient_fusion %in% filter(cohort_report,precise_confident&somatic_variant)$patient_fusion) %>% select(patient_fusion,tool,svtype,tumor_af_mean,normal_af_mean,gup_location,gdw_location)
 ```
 
 Conclusion: classification based on Af  is the same but less often found as same SV due to too larg bp differences. Also mostly for the composite fusions
@@ -495,7 +571,7 @@ cat(paste0("* ","Patients with  clin. rel fusion: ",
 patient_fusion_cnt_table %>% filter(clinical_cnt>0) %>% summarise(patient_cnt = n()),"\n"))
 
 cat(paste0("* ","Patients with MISSED clin. rel fusion: ",
-patient_metadata %>% filter(fusion_status) %>% filter(patient_id %in% filter(patient_fusion_cnt_table,clinical_cnt==0)$patient_id) %>% select(patient_id,fusion),"\n"))
+cohort %>% filter(fusion_status) %>% filter(patient_id %in% filter(patient_fusion_cnt_table,clinical_cnt==0)$patient_id) %>% select(patient_id,fusion),"\n"))
 
 cat(paste0("* ","Patients for which clin. rel is only somatic hc fusion: ",
 patient_fusion_cnt_table %>% filter(clinical_cnt>0 & clinical_cnt==somatic_hc_cnt) %>% summarise(patient_cnt = n()),"\n"))
@@ -547,7 +623,7 @@ Fusions of unknown significance in validation set
 Filtered on somatic variant & precise+confident
 
 ```{r}
-fusions_unkn_sign = cohort_report %>% filter(!clinically_validated&!clinically_validated_reciprocal&somatic_variant &precise_confident & fusion_positive_patient) 
+fusions_unkn_sign = cohort_report %>% filter(!clinically_validated&!clinically_validated_reciprocal&somatic_variant &precise_confident & patient_clinrel_fusion) 
 
 fusions_unkn_sign %>% select(patient_id,fusion_name,primary_group_shorthand_label,tumor_af_mean,normal_af_mean,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% unique()
 ```
@@ -568,15 +644,15 @@ uq_patients(fusions_unkn_sign),
 "\n"))
 
 cat(paste0("* All predicted fusions in validation-set patients: ",
-uq_fusions(fusion_overview %>% filter(patient_id %in% filter(patient_metadata,fusion_status)$patient_id)),
+uq_fusions(fusion_overview %>% filter(patient_id %in% filter(cohort,fusion_status)$patient_id)),
 "\n"))
 
 cat(paste0("* All FFPM >= 0.1 fusions in validation-set patients: ",
-uq_fusions(fusion_overview %>% filter(FFPM >= 0.1 & patient_id %in% filter(patient_metadata,fusion_status)$patient_id)),
+uq_fusions(fusion_overview %>% filter(FFPM >= 0.1 & patient_id %in% filter(cohort,fusion_status)$patient_id)),
 "\n"))
 
 cat(paste0("* Offtarget/passenger: FFPM >= 0.1 fusions in validation-set patients excl. clin.rel fusions: ",
-uq_fusions(fusion_overview %>% filter(!(clinically_validated | clinically_validated_reciprocal) & FFPM >= 0.1 & patient_id %in% filter(patient_metadata,fusion_status)$patient_id)),
+uq_fusions(fusion_overview %>% filter(!(clinically_validated | clinically_validated_reciprocal) & FFPM >= 0.1 & patient_id %in% filter(cohort,fusion_status)$patient_id)),
 "\n"))
 
 ```
@@ -591,13 +667,13 @@ cohort_report %>% filter(clinically_validated & ffpm_max < 0.1) %>% select(patie
 
 ```{r  results="asis"}
 cat(paste0("* ","Fusions validated by WGS vs fusion overview: ",
-           uq_fusions(filter(cohort_report,fusion_positive_patient)), " (",round(
-           uq_fusions(filter(cohort_report,fusion_positive_patient))/uq_fusions(filter(fusion_overview,fusion_positive_patient)),4),")\n"))
+           uq_fusions(filter(cohort_report,patient_clinrel_fusion)), " (",round(
+           uq_fusions(filter(cohort_report,patient_clinrel_fusion))/uq_fusions(filter(fusion_overview,patient_clinrel_fusion)),4),")\n"))
 
 
 cat(paste0("* ","Fusions validated by WGS as tumor specific, precise & confident SV vs fusion overview: ",
-           uq_fusions(filter(cohort_report,fusion_positive_patient & somatic_variant & precise_confident)), " (",round(
-           uq_fusions(filter(cohort_report,fusion_positive_patient & precise_confident & somatic_variant))/uq_fusions(filter(fusion_overview,fusion_positive_patient)),4),")\n"))
+           uq_fusions(filter(cohort_report,patient_clinrel_fusion & somatic_variant & precise_confident)), " (",round(
+           uq_fusions(filter(cohort_report,patient_clinrel_fusion & precise_confident & somatic_variant))/uq_fusions(filter(fusion_overview,patient_clinrel_fusion)),4),")\n"))
 
 ```
 
@@ -672,12 +748,12 @@ Patients without known driver fusion
 
 ```{r  results="asis"}
 cat(paste0("* ","Fusions validated by WGS: ",
-           uq_fusions(filter(cohort_report,!fusion_positive_patient)), " (",round(
-           uq_fusions(filter(cohort_report,!fusion_positive_patient))/uq_fusions(filter(fusion_overview,!fusion_positive_patient)),4),")\n"))
+           uq_fusions(filter(cohort_report,!patient_clinrel_fusion)), " (",round(
+           uq_fusions(filter(cohort_report,!patient_clinrel_fusion))/uq_fusions(filter(fusion_overview,!patient_clinrel_fusion)),4),")\n"))
 
 cat(paste0("* ","Fusions validated by WGS as tumor specific: ",
-           uq_fusions(filter(cohort_report,!fusion_positive_patient & somatic_variant)), " (",round(
-           uq_fusions(filter(cohort_report,!fusion_positive_patient & somatic_variant))/uq_fusions(filter(fusion_overview,!fusion_positive_patient)),4),")\n"))
+           uq_fusions(filter(cohort_report,!patient_clinrel_fusion & somatic_variant)), " (",round(
+           uq_fusions(filter(cohort_report,!patient_clinrel_fusion & somatic_variant))/uq_fusions(filter(fusion_overview,!patient_clinrel_fusion)),4),")\n"))
 
 ```
 
@@ -685,10 +761,10 @@ cat(paste0("* ","Fusions validated by WGS as tumor specific: ",
 ```{r include=F}
 uq_fusions(filter(cohort_report,precise_confident))
 uq_fusions(filter(cohort_report,precise_confident&somatic_variant))
-uq_fusions(filter(cohort_report,precise_confident&somatic_variant&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient))
+uq_fusions(filter(cohort_report,precise_confident&somatic_variant&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion))
 
 print("which onco/tsg fusions are filtered out by precise confident filter?")
-cohort_report %>% filter(!precise_confident&somatic_variant&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient) %>% select(patient_fusion,gup_location,gdw_location,tools_any_wgs)
+cohort_report %>% filter(!precise_confident&somatic_variant&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion) %>% select(patient_fusion,gup_location,gdw_location,tools_any_wgs)
 
 ```
 
@@ -718,7 +794,7 @@ filter(uq_gene_pairs_hc,patient_cnt>1) %>% arrange(-patient_cnt)
 ```
 
 ```{r results="asis"}
-cat(paste0("* Mean size somatic: ",mean(filter(uq_gene_pairs_hc,variant_type=="somatic")$svlen,na.rm=T)%>% round(.),"\n "))
+cat(paste0("* Mean size somatic: ",mean(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svlen,na.rm=T)%>% round(.),"\n "))
 
 cat(paste0("* Mean size germline: ",mean(filter(uq_gene_pairs_hc,variant_type=="germline")$svlen,na.rm = T)%>% round(.),"\n"))
 cat(paste0("* Mean size low-af: ",mean(filter(uq_gene_pairs_hc,variant_type=="low_af")$svlen,na.rm = T) %>% round(.),"\n"))
@@ -726,15 +802,15 @@ cat(paste0("* Mean size low-af: ",mean(filter(uq_gene_pairs_hc,variant_type=="lo
 
 How many times is somatic bigger than germline?
 ```{r}
-mean(filter(uq_gene_pairs_hc,variant_type=="somatic")$svlen,na.rm=T)/mean(filter(uq_gene_pairs_hc,variant_type=="germline")$svlen,na.rm = T)
+mean(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svlen,na.rm=T)/mean(filter(uq_gene_pairs_hc,variant_type=="germline")$svlen,na.rm = T)
 ```
 
 ```{r}
-wilcox.test(filter(uq_gene_pairs_hc,variant_type=="somatic")$svlen,
+wilcox.test(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svlen,
 filter(uq_gene_pairs_hc,variant_type=="germline")$svlen,alternative = "greater")
 
-wilcox.test(filter(uq_gene_pairs_hc,variant_type=="somatic")$svlen,
-filter(uq_gene_pairs_hc,variant_type!="somatic")$svlen,alternative = "greater")
+wilcox.test(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svlen,
+filter(uq_gene_pairs_hc,variant_type!="tumor_specific")$svlen,alternative = "greater")
 
 ```
 
@@ -743,11 +819,13 @@ SV type counts
 print("overall")
 summary(uq_gene_pairs_hc$svtype_label)
 print("somatic")
-summary(filter(uq_gene_pairs_hc,variant_type=="somatic")$svtype_label)
+summary(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svtype_label)
 print("somatic, clinrel")
-summary(filter(uq_gene_pairs_hc,variant_type=="somatic"&clinically_validated)$svtype_label)
+summary(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&clinically_validated)$svtype_label)
 print("somatic, no clinrel")
-summary(filter(uq_gene_pairs_hc,variant_type=="somatic"&!clinically_validated)$svtype_label)
+summary(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&!clinically_validated)$svtype_label)
+
+filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&!clinically_validated) %>% nrow()
 
 print("germline")
 summary(filter(uq_gene_pairs_hc,variant_type=="germline")$svtype_label)
@@ -781,8 +859,8 @@ somatic are much smaller but the rest is bigger in mean? overall it is still sig
 cat(paste0("* Mean size high conf: ",mean(uq_gene_pairs_hc$svlen,na.rm=T)%>% round(.),"\n "))
 cat(paste0("* Mean size low conf: ",mean(uq_gene_pairs_lc$svlen,na.rm=T)%>% round(.),"\n "))
 
-cat(paste0("* Mean size somatic HC: ",mean(filter(uq_gene_pairs_hc,variant_type=="somatic")$svlen,na.rm=T)%>% round(.),"\n "))
-cat(paste0("* Mean size somatic LC: ",mean(filter(uq_gene_pairs_lc,variant_type=="somatic")$svlen,na.rm=T)%>% round(.),"\n "))
+cat(paste0("* Mean size somatic HC: ",mean(filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$svlen,na.rm=T)%>% round(.),"\n "))
+cat(paste0("* Mean size somatic LC: ",mean(filter(uq_gene_pairs_lc,variant_type=="tumor_specific")$svlen,na.rm=T)%>% round(.),"\n "))
 
 cat(paste0("* Mean size germline HC: ",mean(filter(uq_gene_pairs_hc,variant_type=="germline")$svlen,na.rm = T)%>% round(.),"\n"))
 cat(paste0("* Mean size germline LC: ",mean(filter(uq_gene_pairs_lc,variant_type=="germline")$svlen,na.rm = T)%>% round(.),"\n"))
@@ -808,7 +886,7 @@ print("overall")
 summary(uq_gene_pairs_lc$svtype_label)
 
 print("somatic")
-summary(filter(uq_gene_pairs_lc,variant_type=="somatic")$svtype_label)
+summary(filter(uq_gene_pairs_lc,variant_type=="tumor_specific")$svtype_label)
 print("germline")
 summary(filter(uq_gene_pairs_lc,variant_type=="germline")$svtype_label)
 print("low-af")
@@ -888,20 +966,20 @@ Large difference in mean size of high confidence supporting SVs and tumor-specif
 
 ```{r results="asis"}
 
-cat(paste0("* Mean size somatic: ",mean(filter(uq_fusions_hc,variant_type=="somatic")$svlen,na.rm=T)%>% round(.),"\n "))
+cat(paste0("* Mean size somatic: ",mean(filter(uq_fusions_hc,variant_type=="tumor_specific")$svlen,na.rm=T)%>% round(.),"\n "))
 cat(paste0("* Mean size germline: ",mean(filter(uq_fusions_hc,variant_type=="germline")$svlen,na.rm = T)%>% round(.),"\n"))
 cat(paste0("* Mean size low-af: ",mean(filter(uq_fusions_hc,variant_type=="low_af")$svlen,na.rm = T) %>% round(.),"\n"))
-cat(paste0("* Mean size somatic excl the 36 clin rel: ",mean(filter(uq_fusions_hc,variant_type=="somatic"&!clinically_validated)$svlen,na.rm=T)%>% round(.),"\n "))
+cat(paste0("* Mean size somatic excl the 36 clin rel: ",mean(filter(uq_fusions_hc,variant_type=="tumor_specific"&!clinically_validated)$svlen,na.rm=T)%>% round(.),"\n "))
 
 ```
 
 Wilcoxon tests show a sign difference in sv length somatic vs germline and somatic vs non-somatic (germline + low-af)
 
 ```{r}
-wilcox.test(filter(uq_fusions_hc,variant_type=="somatic")$svlen,
+wilcox.test(filter(uq_fusions_hc,variant_type=="tumor_specific")$svlen,
 filter(uq_fusions_hc,variant_type=="germline")$svlen,alternative = "greater")
 
-wilcox.test(filter(uq_fusions_hc,variant_type=="somatic")$svlen,
+wilcox.test(filter(uq_fusions_hc,variant_type=="tumor_specific")$svlen,
 filter(uq_fusions_hc,variant_type!="somatic")$svlen,alternative = "greater")
 
 ```
@@ -924,7 +1002,7 @@ Patients with  >= 95 percentile high confidence tumor-specific and low-af fusion
 and wilcoxon of fraction genome altered 
 
 ```{r}
-patient_fusion_cnt_table %>% filter(somatic_low_af_hc_cnt>=perc_somatic_low_af["95%"]) %>% select(somatic_low_af_hc_cnt,somatic_hc_cnt,fga,max_cna_fusion,min_cna,primary_group_shorthand_label,patient_id,somatic_onco_tsg_fusions) %>% arrange(-somatic_low_af_hc_cnt) %>% left_join(patient_metadata[,c("patient_id","tumor_type_label")],by="patient_id")
+patient_fusion_cnt_table %>% filter(somatic_low_af_hc_cnt>=perc_somatic_low_af["95%"]) %>% select(somatic_low_af_hc_cnt,somatic_hc_cnt,fga,primary_group_shorthand_label,patient_id) %>% arrange(-somatic_low_af_hc_cnt) %>% left_join(cohort[,c("patient_id","tumor_type_label")],by="patient_id")
 
 wilcox.test(filter(patient_fusion_cnt_table,somatic_low_af_hc_cnt>=perc_somatic_low_af["95%"])$fga,
             filter(patient_fusion_cnt_table,somatic_low_af_hc_cnt<perc_somatic_low_af["95%"])$fga,alternative = "greater")
@@ -952,15 +1030,68 @@ filter(patient_fusion_cnt_table,somatic_low_af_hc_cnt>=perc_somatic_low_af["95%"
 
 ## Majority of low AF fusions from amplifications
 
+last edit 2022-02-28
 ```{r echo=T}
 low_af_selection = uq_fusions_hc %>% filter(low_af) 
-low_af_selection %>% filter((patient_id=="PMCID203AAL"&grepl("chr12q",gup_cytoband))|(patient_id=="PMCID288AAK"&grepl("chr11q",gup_cytoband)))
-##15 in the strict sense: 13 from chr12q 13-15 in patient PMCID203AAL and 2 from chr11q in PMCID288AAK, also note 2 from chr12q15 in PMCID288AAK with CN>3
 
+low_af_selection %>% uq_fusions()
+low_af_selection %>% uq_uq_fusions()
+#no recurrrence
+
+```
+
+```{r}
+    
+cnt_per_cytoband  = uq_fusions_hc %>% 
+  group_by(gup_cytoband,gdw_cytoband,patient_id) %>% summarize(fusions = length(unique(patient_fusion))) %>% arrange(-fusions)
+
+cnt_per_cytoband = cnt_per_cytoband %>% left_join(
+  uq_fusions_hc %>% filter(variant_type=="low_af") %>%
+  group_by(gup_cytoband,gdw_cytoband,patient_id) %>% summarize(low_af_fusions = length(unique(patient_fusion))) ) %>% 
+  left_join(
+  uq_fusions_hc %>% filter(variant_type=="tumor_specific") %>%
+  group_by(gup_cytoband,gdw_cytoband,patient_id) %>% summarize(tumor_specific_fusions = length(unique(patient_fusion)))
+)
+
+cnt_per_chromosome  = uq_fusions_hc %>%  group_by(gup_chromosome,gdw_chromosome,patient_id) %>% summarize(fusions = length(unique(patient_fusion))) %>% arrange(-fusions)
+
+cnt_per_chromosome = cnt_per_chromosome %>% left_join(
+  uq_fusions_hc %>% filter(variant_type=="low_af") %>%
+  group_by(gup_chromosome,gdw_chromosome,patient_id) %>% summarize(low_af_fusions = length(unique(patient_fusion))) ) %>% 
+  left_join(
+  uq_fusions_hc %>% filter(variant_type=="tumor_specific") %>%
+  group_by(gup_chromosome,gdw_chromosome,patient_id) %>% summarize(tumor_specific_fusions = length(unique(patient_fusion)))
+)
+
+
+uq_fusions_hc %>% filter((patient_id=="PMCID203AAL"&grepl("chr12q",gup_cytoband))) %>%
+  select(fusion_name,patient_id,variant_type,gup_cytoband,gdw_cytoband,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean) %>% 
+  arrange(patient_id,variant_type,gup_cytoband,gdw_cytoband) %>% unique() 
+                            
+                            
+uq_fusions_hc %>% filter((patient_id=="PMCID288AAK"&grepl("chr11",gup_cytoband))) %>%
+  select(fusion_name,patient_id,variant_type,gup_cytoband,gdw_cytoband,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean) %>% 
+  arrange(patient_id,variant_type,gup_cytoband,gdw_cytoband) %>% unique() 
+
+## from chr12q 13-15 in patient PMCID203AAL and 2 from chr11q in PMCID288AAK, also note 2 from chr12q15 in PMCID288AAK with CN>3
+
+```
+PMCID288AAK  chr11q22.1  amplification between 4.8 and 7.2 with 6x low_af  and 3xtumor specific
+
+PMCID203AAL       low_af     chr12q13-15 cn 4.6-6.2  wth 18 low af 
+
+```{r}
 ## What if considering all CN>3?
-low_af_selection %>% filter(gup_copy_ratio_l2fc_mean>1.58|gdw_copy_ratio_l2fc_mean>1.58) #20 of 29 3x fold change 
-low_af_selection %>% filter(gup_copy_ratio_l2fc_mean>0.58|gdw_copy_ratio_l2fc_mean>0.58) #22 of 29
-low_af_selection %>% filter(!(gup_copy_ratio_l2fc_mean>0.58|gdw_copy_ratio_l2fc_mean>0.58)) %>% select(fusion_name,patient_id,contains("copy"))
+
+cat(paste0("* All WGS validated ",print_fraction(uq_fusions_hc,"flag_in_cn_amplified"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction(filter(uq_fusions_hc,variant_type=="tumor_specific"),"flag_in_cn_amplified"),"\n"))
+cat(paste0("* germline: ",print_fraction(filter(uq_fusions_hc,variant_type=="germline"),"flag_in_cn_amplified"),"\n"))
+cat(paste0("* low-AF: ",print_fraction(filter(uq_fusions_hc,variant_type=="low_af"),"flag_in_cn_amplified"),"\n"))
+
+
+
+low_af_selection %>% filter(gup_copy_ratio_l2fc_mean>1.58|gdw_copy_ratio_l2fc_mean>1.58) 
+#low_af_selection %>% filter(gup_copy_ratio_l2fc_mean>0.58|gdw_copy_ratio_l2fc_mean>0.58) #22 of 29
 
 ## what if comparing mean or median CN vs somatic and germline?
 summary(low_af_selection %>% select(contains("copy"))) #med gup/gdw 3.66 and mean 3.4 
@@ -983,12 +1114,26 @@ Only high confident gene pairs matter for the manuscript:
 
 ```{r}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_healthy_chimera"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_healthy_chimera"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_healthy_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_healthy_chimera"),"\n"))
 cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_healthy_chimera"),"\n"))
 cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_healthy_chimera"),"\n"))
 
 ```
+
+
+anno_healthy_chimera_all
+```{r}
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_healthy_chimera_all"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_healthy_chimera_all"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_healthy_chimera_all"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_healthy_chimera_all"),"\n"))
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_healthy_chimera_all"),"\n"))
+
+```
+
+### prev code
+
 
 ```{r include=F, results="asis"}
 cat(paste0("* Predicted: ",print_fraction(fusion_overview,"anno_healthy_chimera"),"\n"))
@@ -998,8 +1143,8 @@ cat(paste0("  * WGS validated, FFPM mean >0.1: ",print_fraction(filter(cohort_re
 cat(paste0("  * WGS validated, precise_confident: ",print_fraction(filter(cohort_report,precise_confident),"anno_healthy_chimera"),"\n"))
 cat(paste0("* tumor specific: ",print_fraction(filter(cohort_report,somatic_variant),"anno_healthy_chimera"),"\n"))
 cat(paste0("  * precise_confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident),"anno_healthy_chimera"),"\n"))
-cat(paste0("  * !fusion_positive_patient: ",print_fraction(filter(cohort_report,somatic_variant&!fusion_positive_patient),"anno_healthy_chimera"),"\n"))
-cat(paste0("  *  onco/tsg & !fusion_positive_patient: ",print_fraction(filter(cohort_report,somatic_variant&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient),"anno_healthy_chimera"),"\n"))
+cat(paste0("  * !patient_clinrel_fusion: ",print_fraction(filter(cohort_report,somatic_variant&!patient_clinrel_fusion),"anno_healthy_chimera"),"\n"))
+cat(paste0("  *  onco/tsg & !patient_clinrel_fusion: ",print_fraction(filter(cohort_report,somatic_variant&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion),"anno_healthy_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction(filter(cohort_report,germline_variant),"anno_healthy_chimera"),"\n"))
 cat(paste0("  * precise_confident: ",print_fraction(filter(cohort_report,germline_variant&precise_confident),"anno_healthy_chimera"),"\n"))
 cat(paste0("* low-AF: ",print_fraction(filter(cohort_report,low_af),"anno_healthy_chimera"),"\n"))
@@ -1062,9 +1207,9 @@ Only high confident gene pairs matter for the manuscript:
 
 ```{r results="asis"}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_cancer_chimera"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_cancer_chimera"),"\n"))
-cat(paste0("  * tumor specific & clin-rel: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,clinically_validated&variant_type=="somatic"),"anno_cancer_chimera"),"\n"))
-cat(paste0("  * tumor specific & !clin-rel: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!clinically_validated&variant_type=="somatic"),"anno_cancer_chimera"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_cancer_chimera"),"\n"))
+cat(paste0("  * tumor specific & clin-rel: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,clinically_validated&variant_type=="tumor_specific"),"anno_cancer_chimera"),"\n"))
+cat(paste0("  * tumor specific & !clin-rel: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!clinically_validated&variant_type=="tumor_specific"),"anno_cancer_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_cancer_chimera"),"\n"))
 cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_cancer_chimera"),"\n"))
 cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_cancer_chimera"),"\n"))
@@ -1073,7 +1218,7 @@ cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,varia
 
 ```{r}
 
-uq_fusions_hc %>% filter(!fusion_positive_patient&variant_type=="somatic"&anno_cancer_chimera) %>% select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc) %>% left_join(patient_fusion_cnt_table[,c("patient_id","somatic_low_af_hc_cnt","fga","max_cna_fusion")])  %>% arrange(somatic_low_af_hc_cnt)
+uq_fusions_hc %>% filter(!patient_clinrel_fusion&variant_type=="tumor_specific"&anno_cancer_chimera) %>% select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc) %>% left_join(patient_fusion_cnt_table[,c("patient_id","somatic_low_af_hc_cnt","fga","max_cna_fusion")])  %>% arrange(somatic_low_af_hc_cnt)
 ```
 
 ```{r include=F, results="asis"}
@@ -1091,10 +1236,10 @@ cat(paste0("* tumor specific: ",print_fraction(filter(cohort_report,somatic_vari
 cat(paste0("  * precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident),"anno_cancer_chimera"),"\n"))
 cat(paste0("  * clinically relevant & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&(clinically_validated|clinically_validated_reciprocal)),"anno_cancer_chimera"),"\n"))
 cat(paste0("  * !clinically relevant & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&!(clinically_validated|clinically_validated_reciprocal)),"anno_cancer_chimera"),"\n"))
-cat(paste0("  * !fusion_positive_patient & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&!fusion_positive_patient),"anno_cancer_chimera"),"\n"))
-cat(paste0("  * onco/tsg & !fusion_positive_patient & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!fusion_positive_patient),"anno_cancer_chimera"),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&!patient_clinrel_fusion),"anno_cancer_chimera"),"\n"))
+cat(paste0("  * onco/tsg & !patient_clinrel_fusion & precise + confident: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&(anno_has_oncogene|anno_has_tsg)&!patient_clinrel_fusion),"anno_cancer_chimera"),"\n"))
 
-cat(paste0("  * !fusion_positive_patient & precise + confident => Partner cancer chimera: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&!fusion_positive_patient),"anno_partner_cancer_chimera"),"\n"))
+cat(paste0("  * !patient_clinrel_fusion & precise + confident => Partner cancer chimera: ",print_fraction(filter(cohort_report,somatic_variant&precise_confident&!patient_clinrel_fusion),"anno_partner_cancer_chimera"),"\n"))
 
 
 cat(paste0("* germline: ",print_fraction(filter(cohort_report,germline_variant),"anno_cancer_chimera"),"\n"))
@@ -1133,7 +1278,7 @@ cat(paste0("* WGS validated: ",print_fraction(cohort_report,"anno_cancer_chimera
 
 ```{r results="asis"}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
 cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
 cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_cancer_chimera & anno_healthy_chimera"),"\n"))
@@ -1143,10 +1288,22 @@ cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,varia
 Using an OR for healthy chimera and pop SVs shows all germline cancer chimera back
 ```{r results="asis"}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera"),"\n"))
 
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_cancer_chimera"),"\n"))
+
 ```
+
+*important , there are gl cancer chimera that are not in pop db or healthy chimera
+```{r}
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"!(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera"),"\n"))
+
+filter(uq_fusions_hc,variant_type=="germline") %>% filter(!(anno_healthy_chimera|anno_sv_population)&anno_cancer_chimera)
+
+```
+
+
 
 Counting each patient-fusion shows recurrence
 
@@ -1169,19 +1326,25 @@ Often precise & confident as well
 # Oncogenes and TSGs
 
 
-Oncogene enrichment in tumor specific => ignore fusion_positive_patient
+Oncogene enrichment in tumor specific => ignore patient_clinrel_fusion
 
 ```{r  results="asis"}
 
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient),"anno_has_oncogene"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
-                                                           variant_type=="somatic"),"anno_has_oncogene"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion),"anno_has_oncogene"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
+                                                           variant_type=="tumor_specific"),"anno_has_oncogene"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                      variant_type=="germline"),"anno_has_oncogene"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                    variant_type=="low_af"),"anno_has_oncogene"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                       variant_type=="ambiguous"),"anno_has_oncogene"),"\n"))
+
+
+filter(uq_fusions_hc,!patient_clinrel_fusion&anno_has_tsg) %>% uq_uq_fusions()
+filter(uq_fusions_hc,!patient_clinrel_fusion&anno_has_oncogene) %>% uq_uq_fusions()
+
+filter(uq_fusions_hc,!patient_clinrel_fusion&anno_has_onco_or_tsg) %>% uq_uq_fusions()
 
 ```
 
@@ -1189,14 +1352,14 @@ TSG enrichment in tumor specific
 
 ```{r  results="asis"}
 
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient),"anno_has_tsg"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
-                                                           variant_type=="somatic"),"anno_has_tsg"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion),"anno_has_tsg"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
+                                                           variant_type=="tumor_specific"),"anno_has_tsg"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                      variant_type=="germline"),"anno_has_tsg"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                    variant_type=="low_af"),"anno_has_tsg"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
                                                       variant_type=="ambiguous"),"anno_has_tsg"),"\n"))
 
 ```
@@ -1204,16 +1367,16 @@ cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusi
 Onco or TSG enrichment, again not fusion positive patient
 
 ```{r  results="asis"}
-cat(paste0("* All predicted fusions ",print_fraction(filter(fusion_overview,!fusion_positive_patient),"anno_has_oncogene | anno_has_tsg",remove_recurrent = T),"\n"))
+cat(paste0("* All predicted fusions ",print_fraction(filter(fusion_overview,!patient_clinrel_fusion),"anno_has_onco_or_tsg",remove_recurrent = T),"\n"))
 
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="somatic"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="germline"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="low_af"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="ambiguous"),"anno_has_oncogene | anno_has_tsg"),"\n"))
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="tumor_specific"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="germline"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="low_af"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="ambiguous"),"anno_has_onco_or_tsg"),"\n"))
 
-filter(uq_gene_pairs_hc,!fusion_positive_patient&
-                                                   variant_type=="low_af"&(anno_has_oncogene | anno_has_tsg))
+filter(uq_gene_pairs_hc,!patient_clinrel_fusion&
+                                                   variant_type=="low_af"&(anno_has_onco_or_tsg))
 
 ```
 
@@ -1221,40 +1384,40 @@ filter(uq_gene_pairs_hc,!fusion_positive_patient&
 Not fusion positive patient => all cancer related genes 
 
 ```{r  results="asis"}
-cat(paste0("* All predicted fusions ",print_fraction(filter(fusion_overview,!fusion_positive_patient),"anno_cancer_gene_db",remove_recurrent = T),"\n"))
+cat(paste0("* All predicted fusions ",print_fraction(filter(fusion_overview,!patient_clinrel_fusion),"anno_cancer_gene_db",remove_recurrent = T),"\n"))
 
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient),"anno_cancer_gene_db"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="somatic"),"anno_cancer_gene_db"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="germline"),"anno_cancer_gene_db"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="low_af"),"anno_cancer_gene_db"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="ambiguous"),"anno_cancer_gene_db"),"\n"))
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion),"anno_cancer_gene_db"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="tumor_specific"),"anno_cancer_gene_db"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="germline"),"anno_cancer_gene_db"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="low_af"),"anno_cancer_gene_db"),"\n"))
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="ambiguous"),"anno_cancer_gene_db"),"\n"))
 
-filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="germline"&anno_cancer_gene_db)
-filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="low_af"&anno_cancer_gene_db)
+filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="germline"&anno_cancer_gene_db)
+filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="low_af"&anno_cancer_gene_db)
 
 ```
 
 Additional tumor specific in cancer gene db but not onco/tsg
 
 ```{r}
-filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="somatic" & !(anno_has_oncogene |anno_has_tsg) & anno_cancer_gene_db)
+filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="tumor_specific" & !(anno_has_oncogene |anno_has_tsg) & anno_cancer_gene_db)
 ```
 
 Additional tumor specific onco/tsg but not in chimera db
 
 ```{r}
-filter(uq_gene_pairs_hc,!fusion_positive_patient&variant_type=="somatic" & (anno_has_oncogene |anno_has_tsg) & anno_cancer_chimera)
+filter(uq_gene_pairs_hc,!patient_clinrel_fusion&variant_type=="tumor_specific" & (anno_has_oncogene |anno_has_tsg) & anno_cancer_chimera)
 ```
 
 
 ## Fusion positive patients only
 
 ```{r  results="asis"}
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,fusion_positive_patient),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,fusion_positive_patient&variant_type=="somatic"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,fusion_positive_patient&variant_type=="germline"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,fusion_positive_patient&variant_type=="low_af"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,fusion_positive_patient&variant_type=="ambiguous"),"anno_has_oncogene | anno_has_tsg"),"\n"))
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,patient_clinrel_fusion),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,patient_clinrel_fusion&variant_type=="tumor_specific"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,patient_clinrel_fusion&variant_type=="germline"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,patient_clinrel_fusion&variant_type=="low_af"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,patient_clinrel_fusion&variant_type=="ambiguous"),"anno_has_onco_or_tsg"),"\n"))
 ```
 
 
@@ -1298,15 +1461,15 @@ Not in fusion positive patients, unique gene pairs
 ```{r results="asis"}
 
 cat(paste0("* sanity check onco or tsg, high confidence tumor specific : ",
-           filter(uq_gene_pairs_hc,!fusion_positive_patient&somatic_variant&(anno_has_oncogene|anno_has_tsg)) %>% nrow(),"\n"))
+           filter(uq_gene_pairs_hc,!patient_clinrel_fusion&somatic_variant&(anno_has_oncogene|anno_has_tsg)) %>% nrow(),"\n"))
 cat(paste0("* has oncogene : ",
-           filter(uq_gene_pairs_hc,!fusion_positive_patient&somatic_variant&(anno_has_oncogene)) %>% nrow(),"\n"))
+           filter(uq_gene_pairs_hc,!patient_clinrel_fusion&somatic_variant&(anno_has_oncogene)) %>% nrow(),"\n"))
 cat(paste0("* has tgs: ",
-           filter(uq_gene_pairs_hc,!fusion_positive_patient&somatic_variant&(anno_has_tsg)) %>% nrow(),"\n"))
+           filter(uq_gene_pairs_hc,!patient_clinrel_fusion&somatic_variant&(anno_has_tsg)) %>% nrow(),"\n"))
 cat(paste0("* has onco&tsg: ",
-           filter(uq_gene_pairs_hc,!fusion_positive_patient&somatic_variant&(anno_has_oncogene&anno_has_tsg)) %>% nrow(),"\n"))
+           filter(uq_gene_pairs_hc,!patient_clinrel_fusion&somatic_variant&(anno_has_oncogene&anno_has_tsg)) %>% nrow(),"\n"))
 cat(paste0("* has tsg &! onco: ",
-           filter(uq_gene_pairs_hc,!fusion_positive_patient&somatic_variant&(!anno_has_oncogene&anno_has_tsg)) %>% nrow(),"\n"))
+           filter(uq_gene_pairs_hc,!patient_clinrel_fusion&somatic_variant&(!anno_has_oncogene&anno_has_tsg)) %>% nrow(),"\n"))
 
 ```
 
@@ -1336,10 +1499,10 @@ filter(uq_gene_pairs_hc,!clinically_validated&somatic_variant&(anno_has_oncogene
 Of all the high-conf tumor-specific gene pairs that contain oncogenes, what fraction is known clinically relevant?
 
 ```{r results="asis"}
-cat(paste0("* high conf tumor specific uq gene pairs: ",filter(uq_gene_pairs_hc,variant_type=="somatic")%>% nrow(),"\n"))
+cat(paste0("* high conf tumor specific uq gene pairs: ",filter(uq_gene_pairs_hc,variant_type=="tumor_specific")%>% nrow(),"\n"))
 
-cat(paste0("* all with oncogenes: ",filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_oncogene)%>% nrow(),"\n"))
-cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_oncogene),"clinically_validated"),"\n"))
+cat(paste0("* all with oncogenes: ",filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_oncogene)%>% nrow(),"\n"))
+cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_oncogene),"clinically_validated"),"\n"))
 
 
 ```
@@ -1347,17 +1510,17 @@ cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="s
 Of all the high-conf tumor-specific gene pairs that contain tsgs, what fraction is known clinically relevant?
 
 ```{r results="asis"}
-cat(paste0("* all with tsg: ",filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg)%>% nrow(),"\n"))
-cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg),"clinically_validated"),"\n"))
+cat(paste0("* all with tsg: ",filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_tsg)%>% nrow(),"\n"))
+cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_tsg),"clinically_validated"),"\n"))
 ```
 
 Of all the high-conf tumor-specific gene pairs that contain tsgs & !oncogenes, what fraction is known clinically relevant?
 
 ```{r results="asis"}
-cat(paste0("* all with tsg&!anno_has_oncogene: ",filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg&!anno_has_oncogene)%>% nrow(),"\n"))
-cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg&!anno_has_oncogene),"clinically_validated"),"\n"))
+cat(paste0("* all with tsg&!anno_has_oncogene: ",filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_tsg&!anno_has_oncogene)%>% nrow(),"\n"))
+cat(paste0("* ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_tsg&!anno_has_oncogene),"clinically_validated"),"\n"))
 
-filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg&!anno_has_oncogene&!clinically_validated) %>% select(fusion_name, patient_ids, anno_cancer_chimera)
+filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&anno_has_tsg&!anno_has_oncogene&!clinically_validated) %>% select(fusion_name, patient_ids, anno_cancer_chimera)
 ```
 
 
@@ -1366,19 +1529,19 @@ filter(uq_gene_pairs_hc,variant_type=="somatic"&anno_has_tsg&!anno_has_oncogene&
 
 
 ```{r  results="asis"}
-cat(paste0("* All WGS validated - fusion positve patient ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,fusion_positive_patient),"anno_has_oncogene | anno_has_tsg"),"\n"))
+cat(paste0("* All WGS validated - fusion positve patient ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,patient_clinrel_fusion),"anno_has_onco_or_tsg"),"\n"))
 ```
 
 Not fusion positive patient
 
 ```{r  results="asis"}
-cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!fusion_positive_patient),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!fusion_positive_patient&variant_type=="somatic"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!fusion_positive_patient&variant_type=="germline"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!fusion_positive_patient&variant_type=="low_af"),"anno_has_oncogene | anno_has_tsg"),"\n"))
-cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!fusion_positive_patient&variant_type=="ambiguous"),"anno_has_oncogene | anno_has_tsg"),"\n"))
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!patient_clinrel_fusion),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!patient_clinrel_fusion&variant_type=="tumor_specific"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!patient_clinrel_fusion&variant_type=="germline"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!patient_clinrel_fusion&variant_type=="low_af"),"anno_has_onco_or_tsg"),"\n"))
+cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_lc,!patient_clinrel_fusion&variant_type=="ambiguous"),"anno_has_onco_or_tsg"),"\n"))
 
-filter(uq_gene_pairs_lc,!fusion_positive_patient&(anno_has_oncogene | anno_has_tsg))
+filter(uq_gene_pairs_lc,!patient_clinrel_fusion&(anno_has_onco_or_tsg))
 ```
 
 
@@ -1392,25 +1555,25 @@ uq_fusions(cohort_report %>% filter(somatic_variant) %>% filter(anno_in_any_canc
 
 
 ## Enrichments of subsets with cancer chimera / onco/tsg
-Conclusion: tumor specific not enriched in cancer chimera if you remove the patients with known driver fusion (= fusion_positive_patient)
+Conclusion: tumor specific not enriched in cancer chimera if you remove the patients with known driver fusion (= patient_clinrel_fusion)
 
 Counting unique gene pairs
 ```{r }
 
 cat("Is tumor specific enriched for Onco or TSG compared to all predictions?")
 fisher.table = matrix(c(
-  nrow(uq_gene_pairs_hc %>% filter(variant_type=="somatic" ) %>% filter(anno_has_tsg | anno_has_oncogene)),
-  nrow(uq_gene_pairs_hc %>% filter(variant_type=="somatic")  %>% filter(!anno_has_tsg & !anno_has_oncogene)),
-uq_uq_fusions(fusion_overview %>% filter(!fusion_name %in% filter(uq_gene_pairs_hc,variant_type=="somatic")$fusion_name) %>% filter(anno_has_tsg | anno_has_oncogene) ),
-uq_uq_fusions(fusion_overview %>% filter(!fusion_name %in% filter(uq_gene_pairs_hc,variant_type=="somatic")$fusion_name) %>% filter(!anno_has_tsg & !anno_has_oncogene))
+  nrow(uq_gene_pairs_hc %>% filter(variant_type=="tumor_specific" ) %>% filter(anno_has_tsg | anno_has_oncogene)),
+  nrow(uq_gene_pairs_hc %>% filter(variant_type=="tumor_specific")  %>% filter(!anno_has_tsg & !anno_has_oncogene)),
+uq_uq_fusions(fusion_overview %>% filter(!fusion_name %in% filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$fusion_name) %>% filter(anno_has_tsg | anno_has_oncogene) ),
+uq_uq_fusions(fusion_overview %>% filter(!fusion_name %in% filter(uq_gene_pairs_hc,variant_type=="tumor_specific")$fusion_name) %>% filter(!anno_has_tsg & !anno_has_oncogene))
 ), nrow = 2)
 f=fisher.test(fisher.table)
 f
 
 cat("Is tumor specific depleted in healthy chimera or anno population SV compared to all WGS?")
 fisher.table = matrix(c(
-  nrow(uq_gene_pairs_hc %>% filter(variant_type=="somatic") %>% filter(anno_sv_population | anno_healthy_chimera)),
-  nrow(uq_gene_pairs_hc %>% filter(variant_type=="somatic") %>% filter(!anno_sv_population & !anno_healthy_chimera)),
+  nrow(uq_gene_pairs_hc %>% filter(variant_type=="tumor_specific") %>% filter(anno_sv_population | anno_healthy_chimera)),
+  nrow(uq_gene_pairs_hc %>% filter(variant_type=="tumor_specific") %>% filter(!anno_sv_population & !anno_healthy_chimera)),
   nrow(uq_gene_pairs_hc %>% filter(variant_type!="somatic") %>% filter(anno_sv_population | anno_healthy_chimera) ),
   nrow(uq_gene_pairs_hc %>% filter(variant_type!="somatic") %>% filter(!anno_sv_population & !anno_healthy_chimera))
 ), nrow = 2)
@@ -1441,24 +1604,24 @@ uq_gene_pairs_hc %>% filter(!anno_cancer_chimera & clinically_validated) %>% sel
 
 Cancer chimera or onco or tsg & ! fusion positive patient
 ```{r}
-uq_gene_pairs_hc %>% filter(!fusion_positive_patient & (anno_has_oncogene | anno_has_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() 
+uq_gene_pairs_hc %>% filter(!patient_clinrel_fusion & (anno_has_onco_or_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() 
 
 ```
 
 Incl also fusion positive patients as well
 ```{r}
-uq_gene_pairs_hc %>% filter(variant_type=="somatic" & (anno_has_oncogene | anno_has_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() %>% nrow()
+uq_gene_pairs_hc %>% filter(variant_type=="tumor_specific" & (anno_has_onco_or_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() %>% nrow()
 ```
 
 Somatic  chimera or onco or tsg & ! fusion positive patient
 ```{r}
-uq_gene_pairs_hc %>% filter(!fusion_positive_patient & variant_type=="somatic" & (anno_has_oncogene | anno_has_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() %>% nrow()
+uq_gene_pairs_hc %>% filter(!patient_clinrel_fusion & variant_type=="tumor_specific" & (anno_has_onco_or_tsg | anno_cancer_chimera)) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() %>% nrow()
 ```
 
 Somatic chimera & ! fusion positive patient
 
 ```{r}
-uq_gene_pairs_hc %>% filter(!fusion_positive_patient & variant_type=="somatic" & anno_cancer_chimera) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() 
+uq_gene_pairs_hc %>% filter(!patient_clinrel_fusion & variant_type=="tumor_specific" & anno_cancer_chimera) %>% select(fusion_name,variant_type,anno_cancer_chimera,anno_has_oncogene,anno_has_tsg) %>% arrange(variant_type,fusion_name) %>% unique() 
 ```
 
 
@@ -1470,7 +1633,7 @@ Counting unique gene pairs
 
 ```{r results="asis"}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_sv_population"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_sv_population"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_sv_population"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_sv_population"),"\n"))
 cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_sv_population"),"\n"))
 cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_sv_population"),"\n"))
@@ -1478,10 +1641,10 @@ cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,varia
 ```
 
 
-SV population or healthy chimera
+*Important SV population or healthy chimera
 ```{r results="asis"}
 cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_sv_population | anno_healthy_chimera"),"\n"))
-cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_sv_population | anno_healthy_chimera"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_sv_population | anno_healthy_chimera"),"\n"))
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_sv_population | anno_healthy_chimera"),"\n"))
 cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_sv_population | anno_healthy_chimera"),"\n"))
 cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="ambiguous"),"anno_sv_population | anno_healthy_chimera"),"\n"))
@@ -1490,6 +1653,26 @@ cat(paste0("* ambiguous: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,varia
 SV population AND healthy chimera
 ```{r results="asis"}
 cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_healthy_chimera&anno_sv_population"),"\n"))
+
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_healthy_chimera_all&anno_sv_population"),"\n"))
+```
+
+
+
+
+*Important
+SV population or healthy chimera_all
+```{r results="asis"}
+cat(paste0("* All WGS validated ",print_fraction_uq_pairs(uq_gene_pairs_hc,"anno_sv_population | anno_healthy_chimera_all"),"\n"))
+cat(paste0("* tumor specific: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_sv_population | anno_healthy_chimera_all"),"\n"))
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_sv_population | anno_healthy_chimera_all"),"\n"))
+cat(paste0("* low-AF: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="low_af"),"anno_sv_population | anno_healthy_chimera_all"),"\n"))
+
+```
+
+SV population AND healthy chimera_all
+```{r results="asis"}
+cat(paste0("* germline: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="germline"),"anno_healthy_chimera_all&anno_sv_population"),"\n"))
 ```
 
 
@@ -1518,7 +1701,7 @@ cat(paste0("*  low af: ",print_fraction(filter(cohort_report,low_af),"anno_sv_po
 Precise confident fusions that have a population db SV
 ```{r}
 
-uq_fusions_hc %>% filter(variant_type=="somatic" & anno_sv_population) %>% select(fusion_name,patient_id,svtype,svlen,tumor_af_mean,normal_af_mean, repeat_family,segdup,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,anno_sv_db_nstd166,anno_sv_db_nstd186,anno_sv_db_dgv,anno_healthy_chimera) %>% arrange(fusion_name)
+uq_fusions_hc %>% filter(variant_type=="tumor_specific" & anno_sv_population) %>% select(fusion_name,patient_id,svtype,svlen,tumor_af_mean,normal_af_mean, repeat_family,segdup,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,anno_sv_db_nstd166,anno_sv_db_nstd186,anno_sv_db_dgv,anno_healthy_chimera) %>% arrange(fusion_name)
 
 ```
 
@@ -1527,19 +1710,24 @@ uq_fusions_hc %>% filter(variant_type=="somatic" & anno_sv_population) %>% selec
 tumor specific fusions which have no evidence of occuring in the normal population
 
 ```{r results="asis"}
-cat(paste0("* tumor-specific occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"anno_healthy_chimera | anno_sv_population"),"\n"))
+cat(paste0("* tumor-specific occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_healthy_chimera | anno_sv_population"),"\n"))
 
-cat(paste0("* tumor-specific NOT occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"),"!(anno_healthy_chimera | anno_sv_population)"),"\n"))
-
-cat(paste0("  * tumor-specific in total: ",nrow(filter(uq_gene_pairs_hc,variant_type=="somatic"))))
-
-cat(paste0("  * excl fusion positive patients: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"&!fusion_positive_patient),"anno_healthy_chimera | anno_sv_population"),"\n"))
+cat(paste0("* tumor-specific occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"anno_healthy_chimera_all | anno_sv_population"),"\n"))
 
 
+cat(paste0("* tumor-specific NOT occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"!(anno_healthy_chimera | anno_sv_population)"),"\n"))
 
-cat(paste0("  * excl fusion positive patients: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="somatic"&!fusion_positive_patient),"!(anno_healthy_chimera | anno_sv_population)"),"\n"))
+cat(paste0("* tumor-specific NOT occur in normal population: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"),"!(anno_healthy_chimera_all | anno_sv_population)"),"\n"))
 
-cat(paste0("  * tumor-specific excl fusion positive patients in total: ",nrow(filter(uq_gene_pairs_hc,variant_type=="somatic"&!fusion_positive_patient))))
+cat(paste0("  * tumor-specific in total: ",nrow(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"))))
+
+cat(paste0("  * excl fusion positive patients: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&!patient_clinrel_fusion),"anno_healthy_chimera | anno_sv_population"),"\n"))
+
+
+
+cat(paste0("  * excl fusion positive patients: ",print_fraction_uq_pairs(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&!patient_clinrel_fusion),"!(anno_healthy_chimera | anno_sv_population)"),"\n"))
+
+cat(paste0("  * tumor-specific excl fusion positive patients in total: ",nrow(filter(uq_gene_pairs_hc,variant_type=="tumor_specific"&!patient_clinrel_fusion))))
 
 ```
 
@@ -1673,7 +1861,7 @@ Relative to zfpkm domain or cohort
 ```{r}
 print(paste0("zfkpm_threshold: ",zfkpm_threshold))
 
-gdw_over = uq_fusions_hc %>% filter(somatic_variant ) %>% filter( (gdw_fpkm_zscore_domain >zfkpm_threshold) | (gdw_fpkm_zscore >zfkpm_threshold)) 
+gdw_over = uq_fusions_hc %>% filter(somatic_variant ) %>% filter( (gdw_fpkm_zscore_supergroup >zfkpm_threshold) | (gdw_fpkm_zscore >zfkpm_threshold)) 
 
 print("Fraction of all hcTSFs:")
 print_fraction(filter(uq_fusions_hc,somatic_variant),filter_criteria = "anno_gdw_oncogene")
@@ -1689,10 +1877,10 @@ print_fraction(gdw_over,filter_criteria = "anno_gdw_tsg")
 #fisher
 
 fisher.table = matrix(c(
-uq_fusions(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene&(gdw_fpkm_zscore_domain >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
-uq_fusions(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene&!(gdw_fpkm_zscore_domain >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
-uq_fusions(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene&(gdw_fpkm_zscore_domain >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
-uq_fusions(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene&!(gdw_fpkm_zscore_domain >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold)))
+uq_fusions(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene&(gdw_fpkm_zscore_supergroup >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
+uq_fusions(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene&!(gdw_fpkm_zscore_supergroup >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
+uq_fusions(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene&(gdw_fpkm_zscore_supergroup >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))),
+uq_fusions(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene&!(gdw_fpkm_zscore_supergroup >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold)))
 ), nrow = 2)
 f=fisher.test(fisher.table)
 f
@@ -1700,10 +1888,10 @@ f
 ```
 Wilcoxon zfpkm domain 
 ```{r}
-mean(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
-mean(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
+mean(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
+mean(filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene)$gdw_fpkm_zscore_domain,filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene)$gdw_fpkm_zscore_domain,alternative = "greater")
+wilcox.test(filter(uq_fusions_hc,somatic_variant&anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,filter(uq_fusions_hc,somatic_variant&!anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,alternative = "greater")
 
 ```
 
@@ -1729,62 +1917,62 @@ mean z scores for tsg and non-tsg
 genes_long_selection = filter(genes_long,patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv)
 
 print("all onco")
-mean(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 
 print("onco downstream ")
-mean(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 print("TSG")
-mean(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_supergroup)
 
 ```
 
 Exactly the same but without patients with clin rel fusions
 ```{r}
-genes_long_selection = filter(genes_long,patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant_only)$patient_fusion_sv & !fusion_positive_patient)
+genes_long_selection = filter(genes_long,patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant_only)$patient_fusion_sv & !patient_clinrel_fusion)
 
 print("all onco")
-mean(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,grepl("oncogene",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,!grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 
 print("onco downstream ")
-mean(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,side=="downstream"&grepl("oncogene",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,side=="downstream"&!grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 print("TSG")
-mean(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_domain,
-            filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection,grepl("tsg",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection,!grepl("tsg",label))$fpkm_zscore_supergroup)
 
 
 print("TSG only, non-onco vs no-tsg unless it is also onco (two sep. sets)")
-mean(filter(genes_long_selection, grepl("tsg",label) & !grepl("onco",label))$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long_selection, !grepl("tsg",label) | grepl("onco",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long_selection, grepl("tsg",label) & !grepl("onco",label))$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long_selection, !grepl("tsg",label) | grepl("onco",label))$fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test(filter(genes_long_selection, grepl("tsg",label) & !grepl("onco",label))$fpkm_zscore_domain,
-            filter(genes_long_selection, !grepl("tsg",label) | grepl("onco",label))$fpkm_zscore_domain)
+wilcox.test(filter(genes_long_selection, grepl("tsg",label) & !grepl("onco",label))$fpkm_zscore_supergroup,
+            filter(genes_long_selection, !grepl("tsg",label) | grepl("onco",label))$fpkm_zscore_supergroup)
 
 ```
 
@@ -1802,9 +1990,9 @@ counting unique fusions
 
 ```{r}
 bg=uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv))
-over_exp = genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold))
+over_exp = genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold))
 onco=genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv)  %>% filter(grepl("oncogene",label))
-over_exp_onco=genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv)  %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label))
+over_exp_onco=genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv)  %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label))
 
 print(paste("all fusions considered (somatic hcFs)",bg))
 print(paste("all over expressed",uq_fusions(over_exp)))
@@ -1829,19 +2017,19 @@ counting unique fusions
 ```{r}
 
 print("all fusions considered (nongermline hcFs)")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion))
 print("all over expressed")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)))
 
 print("over expressed oncogenes")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label))
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label))
 
 print("Fraction of oncogenes that is over expressed")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/
-  uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient) %>% filter(grepl("oncogene",label)))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/
+  uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion) %>% filter(grepl("oncogene",label)))
 
 print("Fraction of over expr genes that is onco gene")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )))
 
 ```
 
@@ -1851,10 +2039,10 @@ Which of the high-confidence tumor-specific or lowAF fusions in non-clin rel pat
 cna_threshold = log2(3)
 
 print("Oncogene, over expressed and CN>3x")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient ) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% filter(grepl("oncogene",label)) %>% select(patient_fusion) %>% unique()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion ) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% filter(grepl("oncogene",label)) %>% select(patient_fusion) %>% unique()
 
 print("Oncogene, over expressed and CN<=3x")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% filter(grepl("oncogene",label)) %>% select(patient_fusion) %>% unique()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% filter(grepl("oncogene",label)) %>% select(patient_fusion) %>% unique()
 
 ```
 
@@ -1867,20 +2055,20 @@ Overexpression and CN ratio, tumor specific high confidence fusions hcTSFs, all 
 cna_threshold = log2(3)
 
 print(paste0("cna log2 fold change: ", cna_threshold))
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 print("cna <= cna_threshold")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 print("Fraction of >cna_threshold genes that is >zfkpm_threshold fpkm")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 print(" of the ")
 genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
 
 print("Fraction of >zfkpm_threshold fpkm that is CN>cna_threshold ")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()  
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
 ```
 
@@ -1890,13 +2078,13 @@ background set = uq tumor specific high confidence set hcTSFs with all patients
 
 
 fisher.table = matrix(c(
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
   
 ), nrow = 2)
 f=fisher.test(fisher.table)
@@ -1907,19 +2095,19 @@ f
 
 Note from table that not-overexpressed and in CN gain is rare!
 ```{r}
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion, fpkm_zscore_domain, fpkm_zscore,cna_l2fc,gene_name) %>% unique()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion, fpkm_zscore_supergroup, fpkm_zscore,cna_l2fc,gene_name) %>% unique()
 ```
 
 Wilcoxon test for mean zfpkm domain of CN > 3x vs not 
 ```{r}
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_supergroup,na.rm=T)
 
 
 wilcox.test( 
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_domain,
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_domain)
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_supergroup,
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_supergroup)
 
 ```
 
@@ -1928,13 +2116,13 @@ Conclusion: sign enrichment and mean change
 Triple check: CN >3x oncogene vs non onco gene is not sign different
 ```{r}
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
 wilcox.test( 
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_domain,
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_domain)
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_supergroup,
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 ```
 
@@ -1942,13 +2130,13 @@ Another sanity check wilcoxon for expression changes and oncogenes without consi
 ```{r}
 
 fisher.table = matrix(c(
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
   
 ), nrow = 2)
 f=fisher.test(fisher.table)
@@ -1962,20 +2150,20 @@ f
 cna_threshold = log2(1.5)
 
 print(paste0("cna log2 fold change: ", cna_threshold))
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 print("cna <= cna_threshold")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 print("Fraction of >cna_threshold genes that is >zfkpm_threshold fpkm")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 print(" of the ")
 genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter( cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
 
 print("Fraction of >zfkpm_threshold fpkm that is CN>cna_threshold ")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()  
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow() / genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()  
 
 ```
 
@@ -1985,13 +2173,13 @@ background set = uq tumor specific high confidence set hcTSFs with all patients
 
 
 fisher.table = matrix(c(
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
   
 ), nrow = 2)
 f=fisher.test(fisher.table)
@@ -2004,13 +2192,13 @@ f
 Wilcoxon test for mean zfpkm domain of CN > 1.5x vs not 
 ```{r}
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_domain,na.rm=T)
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_supergroup,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_supergroup,na.rm=T)
 
 
 wilcox.test( 
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_domain,
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_domain)
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold)$fpkm_zscore_supergroup,
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc<=cna_threshold)$fpkm_zscore_supergroup)
 
 ```
 
@@ -2019,13 +2207,13 @@ Conclusion: sign enrichment and mean change
 Triple check: CN >1.5x oncogene vs non onco gene is not sign different
 ```{r}
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
-mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_domain,na.rm=T)
+mean(filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_supergroup,na.rm=T)
 
 wilcox.test( 
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_domain,
-  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_domain)
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & grepl("oncogene",label))$fpkm_zscore_supergroup,
+  filter(genes_long, patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv & cna_l2fc>cna_threshold & !grepl("oncogene",label))$fpkm_zscore_supergroup)
 
 ```
 
@@ -2033,13 +2221,13 @@ Another sanity check wilcoxon for expression changes and oncogenes without consi
 ```{r}
 
 fisher.table = matrix(c(
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow(),
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,somatic_variant)$patient_fusion_sv) %>% filter(!(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & !grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
   
 ), nrow = 2)
 f=fisher.test(fisher.table)
@@ -2059,17 +2247,17 @@ print(cna_threshold)
 print(patients_high_fusion_burden)
 
 print("Patients with high fusion burden, all over exp, CN >3x and CN<3x")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 
 print("Patients without high fusion burden, all over expressed genes, CN >3x and CN<3x")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold)) %>% select(patient_fusion) %>% unique() %>% nrow()
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc>cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion & !patient_id %in% patients_high_fusion_burden) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & cna_l2fc<=cna_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 ```
 
@@ -2077,15 +2265,50 @@ genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_vari
 ## General downregulation TSG:
 ```{r}
 print("Fraction of tsg that is downregulated")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))/
-  uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient) %>% filter(grepl("tsg",label)))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))/
+  uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion) %>% filter(grepl("tsg",label)))
 
 print("Fraction of downregulated genes that is tsg")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )))
 
 print("# of tsg downregulated of total downregulated")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !fusion_positive_patient)  %>% filter((fpkm_zscore_domain<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )& grepl("tsg",label)))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!germline_variant)$patient_fusion_sv & !patient_clinrel_fusion)  %>% filter((fpkm_zscore_supergroup<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold) )))
+```
+
+
+## TP53
+
+```{r}
+gene_expression_zscore_outfile="gene_expression_zscore.tsv"
+gene_expression_analysis_path_template = paste0("${reports_dir}",gene_expression_zscore_outfile) 
+gene_expression_analysis_path = stri_replace_all_fixed(gene_expression_analysis_path_template,names(map_template_vars), map_template_vars,vectorize=F)
+
+gene_expression_analysis = read.table(gene_expression_analysis_path,sep="\t",header = T)
+
+candidate = filter(uq_fusions_df,grepl("TP53--",fusion_name)&somatic_variant&precise_confident) 
+```
+
+Wilcox test of group means TP53 fused patients against rest of patients in domain (solids)
+
+```{r}
+print("TP53 mean fpkm log of patients")
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log)
+
+print("mean fpkm of supergroup, excl TP53- fusion patients")
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id & supergroup_label %in% candidate$supergroup_label)$fpkm_log)
+
+wilcox.test( filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log, 
+             filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id & supergroup_label %in% candidate$supergroup_label)$fpkm_log)
+```
+
+Same for full cohort
+```{r}
+mean(filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id )$fpkm_log)
+
+wilcox.test( filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & patient_id %in% candidate$patient_id)$fpkm_log, 
+             filter(gene_expression_analysis,ensembl_id %in% candidate$gup_ensembl_id & !patient_id %in% candidate$patient_id)$fpkm_log)
+
 ```
 
 
@@ -2096,16 +2319,16 @@ uq_fusions(genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,!ge
 print("check fusion count, all upregulated domain/cohort")
 
 genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% select(patient_fusion) %>% unique() %>% nrow()
-genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 print("Fraction of oncogenes that is over expressed")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(grepl("oncogene",label)))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(grepl("oncogene",label)))
 
 print("Fraction of over expr genes that is onco gene")
-uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore >zfkpm_threshold ))
+uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold )& grepl("oncogene",label)))/uq_fusions(genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv) %>% filter(fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore >zfkpm_threshold ))
 
 
-genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv)  %>%  filter(fpkm_zscore_domain<=zfkpm_threshold & fpkm_zscore<=zfkpm_threshold & grepl("oncogene",label) & !grepl("tsg",label)) %>% select(patient_fusion) 
+genes_long %>% filter(patient_fusion_sv %in% uq_fusions_hc$patient_fusion_sv)  %>%  filter(fpkm_zscore_supergroup<=zfkpm_threshold & fpkm_zscore<=zfkpm_threshold & grepl("oncogene",label) & !grepl("tsg",label)) %>% select(patient_fusion) 
 
 ```
 
@@ -2114,10 +2337,10 @@ Upregulation of clin rel fusions
 genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv )  %>%  select(patient_fusion) %>% unique() %>% nrow()
 
 print("domain or cohort >zfkpm_threshold, oncogene")
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv )  %>%  filter((fpkm_zscore_domain>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label))
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv )  %>%  filter((fpkm_zscore_supergroup>zfkpm_threshold | fpkm_zscore>zfkpm_threshold) & grepl("oncogene",label))
 
 ## oncogenes and fpkm <1.9
-genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv )  %>%  filter(fpkm_zscore_domain<1.9 & fpkm_zscore<1.9 & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
+genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_validated|clinically_validated_reciprocal)$patient_fusion_sv )  %>%  filter(fpkm_zscore_supergroup<1.9 & fpkm_zscore<1.9 & grepl("oncogene",label)) %>% select(patient_fusion) %>% unique() %>% nrow()
 
 ```
 
@@ -2126,48 +2349,118 @@ genes_long %>% filter(patient_fusion_sv %in% filter(uq_fusions_hc,clinically_val
 
 
 # Expression to report candidates onco/tsg fusions
+
+
+SV types of candidate fusions 
+```{r}
+selected_fusion_candidates =uq_fusions_df %>% filter(rna_consensus==T) %>%
+  filter(((low_af|somatic_variant)&high_confidence)|
+           (somatic_variant & ( (grepl(",",tools_any_wgs_fusioncatcher)&gup_location_fusioncatcher=="composite") | 
+                                  (grepl(",",tools_any_wgs_starfusion)&gup_location_starfusion=="composite")))) %>%
+  filter(!patient_clinrel_fusion & (anno_has_kinase|anno_has_onco_or_tsg))
+
+
+selected_fusion_candidates = selected_fusion_candidates %>% left_join(patient_labels_lookup) 
+
+summary(selected_fusion_candidates %>%  select(patient_fusion,svtype_label) %>% unique())
+summary(selected_fusion_candidates %>%  select(fusion_name,svtype_label) %>% unique())
+
+uq_gene_pairs_df %>% filter(fusion_name %in% selected_fusion_candidates$fusion_name) %>% select(fusion_name,svtype_label)
+
+
+selected_fusion_candidates %>% select(patient_fusion,variant_type,svtype_label,tumor_af_mean,tumor_type_label) %>% arrange(patient_fusion) %>% unique()
+summary(selected_fusion_candidates %>% filter(somatic_variant) %>% select(patient_fusion,svtype_label) %>% unique())
+summary(selected_fusion_candidates %>% filter(somatic_variant) %>% select(fusion_name,svtype_label) %>% unique())
+
+  
+export_selected_fusion_candidates = selected_fusion_candidates %>% select(patient_id,patient_label,patient_fusion,variant_type,svtype_label,tumor_af_mean,gup_label,gdw_label,tumor_type_label,gup_fpkm_zscore_supergroup,gdw_fpkm_zscore_supergroup,gup_fpkm_supergroup_pval,gdw_fpkm_supergroup_pval,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,gup_sv_merged_coordinate,gdw_sv_merged_coordinate) %>% arrange(patient_fusion) %>% unique() 
+
+#export_selected_fusion_candidates %>% View()
+
+#write.table(export_selected_fusion_candidates ,paste0(reports_dir,"selected_fusion_candidates.tsv"),col.names=T,quote=T,row.names = F,sep="\t",na="")
+
+#
+```
+
 ## Upregulation oncogenes
 
 ```{r}
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(grepl("oncogene",label)) %>%
-  filter(fpkm_zscore_domain>zfkpm_threshold) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_domain,fpkm_domain_pval)
+  filter(fpkm_zscore_supergroup>zfkpm_threshold) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_supergroup,fpkm_supergroup_pval)
 
 print("not in domain but on group/cohort")
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(grepl("oncogene",label)) %>%
-  filter(fpkm_zscore_domain<zfkpm_threshold & (fpkm_zscore_group>zfkpm_threshold | fpkm_zscore >zfkpm_threshold)) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_group,fpkm_zscore,fpkm_pval)
+  filter(fpkm_zscore_supergroup<zfkpm_threshold & (fpkm_zscore_group>zfkpm_threshold | fpkm_zscore >zfkpm_threshold)) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_group,fpkm_zscore,fpkm_pval)
 
 print("tsg only but upregulation")
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(grepl("tsg",label)&!grepl("oncogene",label)) %>%
-  filter(fpkm_zscore_domain>zfkpm_threshold) 
+  filter(fpkm_zscore_supergroup>zfkpm_threshold) 
+
 
 ```
+
 
 ## Downregulation, TSGs
 ```{r}
 
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(grepl("tsg",label)) %>%
-  filter(fpkm_zscore_domain<(-zfkpm_threshold)) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_domain,fpkm_domain_pval)
+  filter(fpkm_zscore_supergroup<(-zfkpm_threshold)) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_supergroup,fpkm_supergroup_pval)
 
 print("not in domain but on group/cohort")
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(grepl("tsg",label)) %>%
-  filter(fpkm_zscore_domain>(-zfkpm_threshold) & (fpkm_zscore_group<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold))) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_group,fpkm_zscore,fpkm_pval)
+  filter(fpkm_zscore_supergroup>(-zfkpm_threshold) & (fpkm_zscore_group<(-zfkpm_threshold) | fpkm_zscore <(-zfkpm_threshold))) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_group,fpkm_zscore,fpkm_pval)
 
 print("oncogene only but downregulation")
 genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates$patient_fusion_sv) %>% filter(!grepl("tsg",label)&grepl("oncogene",label)) %>%
-  filter(fpkm_zscore_domain<(-zfkpm_threshold))
+  filter(fpkm_zscore_supergroup<(-zfkpm_threshold))
 
 
 ```
 
-## Fusions with cancer related genes non-onco/tsg
+## Fusions with cancer related genes non-onco/tsg - incl kinases
+
+
 ```{r}
-selected_fusion_candidates %>% filter(!(anno_has_oncogene | anno_has_tsg)&anno_cancer_gene_db) %>% select(patient_fusion) %>%  unique()
+
+selected_fusion_candidates_larger =uq_fusions_df %>% filter(rna_consensus==T) %>%
+  filter(((low_af|somatic_variant)&high_confidence)|
+           (somatic_variant & ( (grepl(",",tools_any_wgs_fusioncatcher)&gup_location_fusioncatcher=="composite") | 
+                                  (grepl(",",tools_any_wgs_starfusion)&gup_location_starfusion=="composite")))) %>%
+  filter(!patient_clinrel_fusion & (anno_has_kinase|anno_cancer_gene_db|anno_has_onco_or_tsg))
+
+```
+Kinases
+```{r}
+
+selected_fusion_candidates_larger %>% filter(grepl("kinase",gup_label) | grepl("kinase",gdw_label))  %>%
+   left_join(patient_labels_lookup)  %>% select(patient_id,patient_label,patient_fusion,variant_type,svtype_label,tumor_af_mean,gup_label,gdw_label,tumor_type_label,gup_fpkm_zscore_supergroup,gdw_fpkm_zscore_supergroup,gup_fpkm_supergroup_pval,gdw_fpkm_supergroup_pval,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc) %>% arrange(patient_fusion) %>% unique() #%>% View()
+
+ 
+```
+
+Upregulated:
+```{r}
+genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates_larger$patient_fusion_sv) %>% filter(grepl("kinase",label)) %>%
+  filter(fpkm_zscore_supergroup>zfkpm_threshold) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_supergroup,fpkm_supergroup_pval)
+
+print("not in domain but on group/cohort")
+genes_long %>% filter(patient_fusion_sv %in% selected_fusion_candidates_larger$patient_fusion_sv) %>% filter(grepl("kinase",label)) %>%
+  filter(fpkm_zscore_supergroup<zfkpm_threshold & (fpkm_zscore_group>zfkpm_threshold | fpkm_zscore >zfkpm_threshold)) %>% select(patient_id,patient_label,fusion_name,gene_name,fpkm_zscore_group,fpkm_zscore,fpkm_pval)
+
+```
+
+
+fusions w/o onco/tsg but cancer genes:
+```{r}
+selected_fusion_candidates_larger %>% filter(!(anno_has_onco_or_tsg)&anno_cancer_gene_db) %>% select(patient_fusion) %>%  unique()
 ```
 
 Fusions that are only cancer chimera not has cancer related genes => check anno population and if not instability associated
 ```{r}
-selected_fusion_candidates %>% filter(!(anno_has_oncogene | anno_has_tsg)&!anno_cancer_gene_db) %>% select(patient_fusion,anno_healthy_chimera,anno_sv_population,repeat_family,segdup,fga,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean) %>%  unique()
+selected_fusion_candidates_larger %>% filter(!(anno_has_onco_or_tsg)&!anno_cancer_gene_db) %>% select(patient_fusion,anno_healthy_chimera,anno_sv_population,repeat_family,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean) %>%  unique()
 ```
+
+
 
 ## <old code remove>Looking for patterns (draft)
 
@@ -2176,8 +2469,8 @@ Upstream excl fusio positive patient
 ```{r include=F}
 ## upstream
 
-gup_over = uq_fusions_df %>% filter(somatic_variant & !fusion_positive_patient) %>% filter( (gup_fpkm_zscore_domain >zfkpm_threshold | gup_fpkm_zscore >zfkpm_threshold | gup_fpkm_zscore_group >zfkpm_threshold)) 
-gup_under = uq_fusions_df  %>% filter(somatic_variant & !fusion_positive_patient) %>% filter( (gup_fpkm_zscore_domain < (-zfkpm_threshold) | gup_fpkm_zscore < (-zfkpm_threshold) | gup_fpkm_zscore_group < (-zfkpm_threshold))) 
+gup_over = uq_fusions_df %>% filter(somatic_variant & !patient_clinrel_fusion) %>% filter( (gup_fpkm_zscore_supergroup >zfkpm_threshold | gup_fpkm_zscore >zfkpm_threshold | gup_fpkm_zscore_group >zfkpm_threshold)) 
+gup_under = uq_fusions_df  %>% filter(somatic_variant & !patient_clinrel_fusion) %>% filter( (gup_fpkm_zscore_supergroup < (-zfkpm_threshold) | gup_fpkm_zscore < (-zfkpm_threshold) | gup_fpkm_zscore_group < (-zfkpm_threshold))) 
 
 ## over expressed upstream onco are rare
 print_fraction(uq_fusions_df,filter_criteria = "anno_gup_oncogene")
@@ -2191,25 +2484,25 @@ print_fraction(gup_under,filter_criteria = "anno_gup_tsg")
 print_fraction(gup_under,filter_criteria = "anno_gup_oncogene&!anno_gup_tsg")
 
 
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & anno_gdw_oncogene)$gdw_fpkm_zscore_domain),na.rm=T)
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup),na.rm=T)
 
-wilcox.test( filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & anno_gdw_oncogene)$gdw_fpkm_zscore_domain,
-             filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain,alternative = "greater")
+wilcox.test( filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,
+             filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,alternative = "greater")
 
 ## slightly but NS
 
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & anno_gdw_tsg)$gdw_fpkm_zscore_domain),na.rm=T)
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & !anno_gdw_tsg)$gdw_fpkm_zscore_domain),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & anno_gdw_tsg)$gdw_fpkm_zscore_supergroup),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & !anno_gdw_tsg)$gdw_fpkm_zscore_supergroup),na.rm=T)
 
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & anno_gup_tsg)$gup_fpkm_zscore_domain),na.rm=T)
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & !anno_gup_tsg)$gup_fpkm_zscore_domain),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & anno_gup_tsg)$gup_fpkm_zscore_supergroup),na.rm=T)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & !anno_gup_tsg)$gup_fpkm_zscore_supergroup),na.rm=T)
 
 
  ## same for cancer related genes???
 
-filter(uq_fusions_df,somatic_variant & (clinically_validated | clinically_validated_reciprocal)  & anno_gdw_oncogene) %>% select(fusion_name,gdw_fpkm_zscore_domain)
-mean(abs(filter(uq_fusions_df,somatic_variant & !fusion_positive_patient & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain),na.rm=T)
+filter(uq_fusions_df,somatic_variant & (clinically_validated | clinically_validated_reciprocal)  & anno_gdw_oncogene) %>% select(fusion_name,gdw_fpkm_zscore_supergroup)
+mean(abs(filter(uq_fusions_df,somatic_variant & !patient_clinrel_fusion & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup),na.rm=T)
 
 ```
 
@@ -2238,11 +2531,11 @@ Over or under expression for oncogenes or TSGs?
 ## <old code remove> Oncogenes
 
 ```{r}
-cohort_report %>% filter(!fusion_positive_patient & somatic_variant & precise_confident
-                         & (anno_gup_oncogene & (gup_fpkm_zscore_domain >zfkpm_threshold | gup_fpkm_zscore >zfkpm_threshold))) %>%  select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,contains("gup_fpkm_zscore"),contains("gup_fpkm_log_normal_dist"),contains("tx_gup_exon_l2fc"),tx_gup_involved_fraction) %>% unique()
+cohort_report %>% filter(!patient_clinrel_fusion & somatic_variant & precise_confident
+                         & (anno_gup_oncogene & (gup_fpkm_zscore_supergroup >zfkpm_threshold | gup_fpkm_zscore >zfkpm_threshold))) %>%  select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,contains("gup_fpkm_zscore"),contains("gup_fpkm_log_normal_dist"),contains("tx_gup_exon_l2fc"),tx_gup_involved_fraction) %>% unique()
 
-cohort_report %>% filter(!fusion_positive_patient & somatic_variant & precise_confident
-                         & (anno_gdw_oncogene & (gdw_fpkm_zscore_domain >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))) %>%
+cohort_report %>% filter(!patient_clinrel_fusion & somatic_variant & precise_confident
+                         & (anno_gdw_oncogene & (gdw_fpkm_zscore_supergroup >zfkpm_threshold | gdw_fpkm_zscore >zfkpm_threshold))) %>%
   select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,contains("gdw_fpkm_zscore"),contains("gdw_fpkm_log_normal_dist"),contains("tx_gdw_exon_l2fc"),tx_gdw_involved_fraction) %>% unique()
 
 ```
@@ -2254,14 +2547,14 @@ Example HOXA: the start 5' is -5.9 l2fc compared to the tail 3' that is included
 Overexpression of downstream oncogenes? => OPPOSITE??
 Domain:
 ```{r}
-mean(filter(cohort_report,somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
-mean(filter(cohort_report,somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
+mean(filter(cohort_report,somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
+mean(filter(cohort_report,somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
 
-mean(filter(cohort_report,!fusion_positive_patient &somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
-mean(filter(cohort_report,!fusion_positive_patient &somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain,na.rm=T)
+mean(filter(cohort_report,!patient_clinrel_fusion &somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
+mean(filter(cohort_report,!patient_clinrel_fusion &somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,na.rm=T)
 
-wilcox.test( filter(cohort_report,!fusion_positive_patient & somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_domain,
-             filter(cohort_report,!fusion_positive_patient & somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_domain,alternative = "greater")
+wilcox.test( filter(cohort_report,!patient_clinrel_fusion & somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,
+             filter(cohort_report,!patient_clinrel_fusion & somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_supergroup,alternative = "greater")
 ```
 
 Group
@@ -2270,11 +2563,11 @@ Group
 mean(filter(cohort_report,somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
 mean(filter(cohort_report,somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
 
-mean(filter(cohort_report,!fusion_positive_patient &somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
-mean(filter(cohort_report,!fusion_positive_patient &somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
+mean(filter(cohort_report,!patient_clinrel_fusion &somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
+mean(filter(cohort_report,!patient_clinrel_fusion &somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_group,na.rm=T)
 
-wilcox.test( filter(cohort_report,!fusion_positive_patient & somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_group,
-             filter(cohort_report,!fusion_positive_patient & somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_group,alternative = "greater")
+wilcox.test( filter(cohort_report,!patient_clinrel_fusion & somatic_variant & precise_confident & anno_gdw_oncogene)$gdw_fpkm_zscore_group,
+             filter(cohort_report,!patient_clinrel_fusion & somatic_variant & precise_confident & !anno_gdw_oncogene)$gdw_fpkm_zscore_group,alternative = "greater")
 ```
 
 Conclusion: non significant on cohort level and hardly change in mean, even lower for fusion positive patients (chimeric protein as mechanism) so no tendency or trend but yes for individual cases we do observe over expression of proto onco genes (HOXA,,..)
@@ -2282,11 +2575,11 @@ Conclusion: non significant on cohort level and hardly change in mean, even lowe
 ## <old code remove> TSGs
 ```{r}
 cohort_report %>% filter(somatic_variant & precise_confident
-                         & (anno_gup_tsg & (gup_fpkm_zscore_domain < -1.9 | gup_fpkm_zscore < -1.9))) %>% 
+                         & (anno_gup_tsg & (gup_fpkm_zscore_supergroup < -1.9 | gup_fpkm_zscore < -1.9))) %>% 
 select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,contains("gup_fpkm_zscore"),contains("gup_fpkm_log_normal_dist"),contains("tx_gup_exon_l2fc"),tx_gup_involved_fraction) %>% unique()
 
 cohort_report %>% filter(somatic_variant & precise_confident
-                         & (anno_gdw_tsg & (gdw_fpkm_zscore_domain < -1.9 | gdw_fpkm_zscore < -1.9))) %>%
+                         & (anno_gdw_tsg & (gdw_fpkm_zscore_supergroup < -1.9 | gdw_fpkm_zscore < -1.9))) %>%
 select(fusion_display_properties,gup_copy_ratio_l2fc_mean,gdw_copy_ratio_l2fc_mean,gup_start_copy_ratio_l2fc,gdw_end_copy_ratio_l2fc,contains("gdw_fpkm_zscore"),contains("gdw_fpkm_log_normal_dist"),contains("tx_gdw_exon_l2fc"),tx_gdw_involved_fraction) %>% unique()
 ```
 
@@ -2300,10 +2593,10 @@ Imbalances, look for + imbalance upstream and - imbalance downstream
 
 ```{r}
 cohort_report %>% filter(somatic_variant&precise_confident) %>% 
-  filter( ((anno_gup_oncogene|anno_gup_tsg) &  tx_gup_exon_l2fc_sign_cohort)  ) %>% mutate(side="upstream") %>% select(side,fusion_name,fusion_positive_patient,contains("tx_gup_exon_l2fc"),contains("gup_fpkm_zscore"),anno_cancer_chimera) %>% arrange(-fusion_positive_patient,fusion_name)
+  filter( ((anno_gup_oncogene|anno_gup_tsg) &  tx_gup_exon_l2fc_sign_cohort)  ) %>% mutate(side="upstream") %>% select(side,fusion_name,patient_clinrel_fusion,contains("tx_gup_exon_l2fc"),contains("gup_fpkm_zscore"),anno_cancer_chimera) %>% arrange(-patient_clinrel_fusion,fusion_name)
 
 cohort_report %>% filter(somatic_variant&precise_confident) %>% 
-  filter(     ((anno_gdw_oncogene|anno_gdw_tsg) & tx_gdw_exon_l2fc_sign_cohort) ) %>% mutate(side="downstream") %>% select(side,fusion_name,fusion_positive_patient,contains("tx_gdw_exon_l2fc"),contains("gdw_fpkm_zscore"),anno_cancer_chimera) %>% arrange(-fusion_positive_patient,fusion_name)
+  filter(     ((anno_gdw_oncogene|anno_gdw_tsg) & tx_gdw_exon_l2fc_sign_cohort) ) %>% mutate(side="downstream") %>% select(side,fusion_name,patient_clinrel_fusion,contains("tx_gdw_exon_l2fc"),contains("gdw_fpkm_zscore"),anno_cancer_chimera) %>% arrange(-patient_clinrel_fusion,fusion_name)
 
 ```
 
@@ -2316,11 +2609,11 @@ cohort_report = cohort_report %>% mutate(tx_gup_exon_l2fc_sign_cohort= ifelse(is
 
 
 cohort_report %>% filter(somatic_variant&precise_confident) %>% 
-  filter( (anno_gup_oncogene|anno_gup_tsg) &  (!tx_gup_exon_l2fc_sign_cohort & tx_gup_exon_l2fc_sign_cohort_close)  ) %>% mutate(side="upstream") %>% select(side,fusion_name,fusion_positive_patient,contains("tx_gup_exon_l2fc"),contains("gup_fpkm_zscore"),anno_cancer_chimera,anno_gup_oncogene,anno_gup_tsg) %>% arrange(-fusion_positive_patient,fusion_name)
+  filter( (anno_gup_oncogene|anno_gup_tsg) &  (!tx_gup_exon_l2fc_sign_cohort & tx_gup_exon_l2fc_sign_cohort_close)  ) %>% mutate(side="upstream") %>% select(side,fusion_name,patient_clinrel_fusion,contains("tx_gup_exon_l2fc"),contains("gup_fpkm_zscore"),anno_cancer_chimera,anno_gup_oncogene,anno_gup_tsg) %>% arrange(-patient_clinrel_fusion,fusion_name)
 
 
 cohort_report %>% filter(somatic_variant&precise_confident) %>% 
-  filter((anno_gdw_oncogene|anno_gdw_tsg) & (!tx_gdw_exon_l2fc_sign_cohort & tx_gdw_exon_l2fc_sign_cohort_close) ) %>% mutate(side="downstream") %>% select(side,fusion_name,fusion_positive_patient,contains("tx_gdw_exon_l2fc"),contains("gdw_fpkm_zscore"),anno_cancer_chimera,anno_gdw_oncogene,anno_gdw_tsg) %>% arrange(-fusion_positive_patient,fusion_name)
+  filter((anno_gdw_oncogene|anno_gdw_tsg) & (!tx_gdw_exon_l2fc_sign_cohort & tx_gdw_exon_l2fc_sign_cohort_close) ) %>% mutate(side="downstream") %>% select(side,fusion_name,patient_clinrel_fusion,contains("tx_gdw_exon_l2fc"),contains("gdw_fpkm_zscore"),anno_cancer_chimera,anno_gdw_oncogene,anno_gdw_tsg) %>% arrange(-patient_clinrel_fusion,fusion_name)
 
 
 if(FALSE){
@@ -2354,17 +2647,17 @@ uq_fusions_hc %>% filter(anno_gdw_tsg & (gdw_snv_high_impact | gdw_snv_moderate_
 
 Tumor types where all patients have a clin rel fusion:
 ```{r}
-filter(patient_metadata,fusion_status&!is.na(tumor_type)& !tumor_type %in% filter(patient_metadata,!fusion_status&!is.na(tumor_type))$tumor_type) %>% group_by(tumor_type_label) %>% summarize(patient_cnt =n()) %>% arrange(-patient_cnt)
+filter(cohort,fusion_status&!is.na(tumor_type)& !tumor_type %in% filter(cohort,!fusion_status&!is.na(tumor_type))$tumor_type) %>% group_by(tumor_type_label) %>% summarize(patient_cnt =n()) %>% arrange(-patient_cnt)
 ```
 
 Primary groups with 0 tumor-specific fusions
 ```{r}
-patient_metadata %>% filter(!is.na(primary_group_shorthand_label) & !primary_group_shorthand_label %in% filter(cohort_report,somatic_variant&!is.na(primary_group_shorthand_label))$primary_group_shorthand_label) %>% group_by(primary_group_shorthand_label) %>% summarize(patient_cnt=n()) %>% arrange(-patient_cnt)
+cohort %>% filter(!is.na(primary_group_shorthand_label) & !primary_group_shorthand_label %in% filter(cohort_report,somatic_variant&!is.na(primary_group_shorthand_label))$primary_group_shorthand_label) %>% group_by(primary_group_shorthand_label) %>% summarize(patient_cnt=n()) %>% arrange(-patient_cnt)
 ```
 
 Tumor types with 0 tumor-specific fusions
 ```{r}
-patient_metadata %>% filter(!is.na(tumor_type_label) & !tumor_type_label %in% filter(cohort_report,somatic_variant&!is.na(tumor_type_label))$tumor_type_label) %>% group_by(tumor_type_label) %>% summarize(patient_cnt=n(),primary_group_shorthand_label=unique(primary_group_shorthand_label)) %>% arrange(-patient_cnt)
+cohort %>% filter(!is.na(tumor_type_label) & !tumor_type_label %in% filter(cohort_report,somatic_variant&!is.na(tumor_type_label))$tumor_type_label) %>% group_by(tumor_type_label) %>% summarize(patient_cnt=n(),primary_group_shorthand_label=unique(primary_group_shorthand_label)) %>% arrange(-patient_cnt)
 
 ```
 
