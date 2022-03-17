@@ -1,5 +1,15 @@
 ### Supporting SV annotation 
 ## Bring together annotation from utils
+
+## plan for 2022 refactor
+
+## cohort suppporting svs + pairwise overlap merged
+# + pairwise overlaps from SV pipeline: SV CNA, population db, and repeats segdups 
+
+# most can come from annotate_pairwise_overlaps.R in utils
+sv_cna_path = "~/fusion_sq/run/fusion_sq/output/sv_cna.fusion_sq_svs.tsv"
+cohort_sv_cna = read.table(sv_cna_path,sep="\t",header=T)
+
 ## Refactor 2021-08
 
 suppressPackageStartupMessages({
@@ -15,14 +25,8 @@ library(rtracklayer, quietly=TRUE)
 library(ensembldb)
 
   })
-#if("dplyr" %in% (.packages())){
-#detach("package:dplyr", unload=TRUE) 
-#  detach("package:plyr", unload=TRUE) 
-#} 
-#library(plyr)
-#library(dplyr)
 
-source("R/default.conf") #in script dir
+
 source(paste0(script_dir,"functions.general.R")) 
 source(paste0(script_dir,"functions.svs.R"))
 
@@ -33,7 +37,7 @@ cohort_pairwise_overlap_merged_path = paste0(reports_dir,cohort_pairwise_overlap
 
 ## Output
 cohort_supporting_sv_anno_path = paste0(reports_dir,cohort_supporting_sv_anno_outfile)
-population_sv_database_matches_path = paste0(reports_dir,population_sv_database_matches_outfile)
+#population_sv_database_matches_path = paste0(reports_dir,population_sv_database_matches_outfile)
 
 gene_tx_table_path = paste0(reports_dir,gene_tx_table_outfile)
 
@@ -190,18 +194,7 @@ supporting_sv_anno_df = unique(supporting_sv_anno_df)
 ## Optional: copy number
 ### Add CNA l2fc if exists
 svs_cna_mapping_df=data.frame()
-for(id in patient_metadata$patient_identifier) {
-  patient = dplyr::filter(patient_metadata,patient_identifier==id)
-  svs_cna_mapping_path = paste0(cna_reports_dir,svs_cna_outfile,patient$patient_identifier,".tsv")
-  if( length(Sys.glob(svs_cna_mapping_path)) == 1) {
-    
-    svs_cna_mapping = read.table(svs_cna_mapping_path,header=T,sep="\t")
-    svs_cna_mapping$patient_id = patient$patient_id
-    svs_cna_mapping_df = rbind(svs_cna_mapping_df,svs_cna_mapping)
-  }
-}
 if(nrow(svs_cna_mapping_df)>0){
-  svs_cna_mapping_df$bp_name = paste0(svs_cna_mapping_df$patient_id,"_",svs_cna_mapping_df$bp_name)
   supporting_sv_anno_df = supporting_sv_anno_df %>% left_join(svs_cna_mapping_df,by=c("bp_name","sv_name","sv_merged","patient_id"))
 } else {
   print("No copy number data found")
@@ -209,6 +202,7 @@ if(nrow(svs_cna_mapping_df)>0){
 
 ## Optional database overlaps
 
+# ... use normal overlap
 databases_lst = c("nstd166","nstd186","dgv")
 sv_database_matches = data.frame()
 

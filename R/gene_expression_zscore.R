@@ -8,59 +8,109 @@
 
 ## The FPKM z score analysis needs to be rerun if: patient diagnosis changes; cohort changes
 
+
+if(FALSE) {
+  #local
+  source("~/fusion_sq/R/default.conf")
+  source("~/fusion_sq/R/default.docker.local.conf")
+  source("~/fusion_sq/run/fusion_sq/fusion_sq.conf")
+}
+if(FALSE){
+  #set paths for hpc
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.conf")
+  ## HPC config overrides
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/R/default.docker.conf")
+  #HPC doesnt use argparser but patient specific config instead 
+  source("/hpc/pmc_gen/ivanbelzen/github_fusion_sq/fusion-sq/run/fusion_sq/fusion_sq.conf")
+}
+
+if(!exists("patient_table_path") | length(Sys.glob(patient_table_path))!=1) {
+  print(paste0("Cohort file not available: ",patient_table_path))
+  #quit()
+}
+
 suppressPackageStartupMessages({
   library(tidyverse, quietly=TRUE)
   library(stringr, quietly=TRUE)
+  library(dplyr)
+  library(stringi)
 })
-wdir="~/PycharmProjects/structuralvariation/fusion_sq/"
-script_dir = paste0(wdir,"R/")
-source(paste0(script_dir,"default.conf"))
+
 source(paste0(script_dir,"functions.general.R")) 
 
-patient_metadata = read.table(patient_table,sep = "\t", header=T,stringsAsFactors = T)
+map_template_vars=c('${resources_dir}'=resources_dir,'${input_dir}'=input_dir,'${output_dir}'=output_dir,
+                    '${cohort_identifier}'=cohort_identifier,'${cohort_wdir}'=cohort_wdir)
 
+reports_dir =  stri_replace_all_fixed(reports_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+base_dir =  stri_replace_all_fixed(base_dir_template,names(map_template_vars), map_template_vars,vectorize=F)
+
+map_template_vars=c(map_template_vars,'${reports_dir}'=reports_dir,'${base_dir}'=base_dir)
+
+#tmp dots
+map_template_vars = c('${analysis_type}'=".merged",map_template_vars )
+
+## subset to gene fusions
+cohort_fusion_level_results_path = stri_replace_all_fixed(cohort_fusion_level_results_path_template,names(map_template_vars), map_template_vars_merged,vectorize=F)
+
+## Output
+
+#nb typo
+#gene_expression_analysis_path = paste0(reports_dir,gene_expression_zcore_outfile)
+
+gene_expression_zscore_outfile="gene_expression_zscore.tsv"
+gene_expression_analysis_path_template = paste0("${reports_dir}",gene_expression_zscore_outfile) 
+gene_expression_analysis_path = stri_replace_all_fixed(gene_expression_analysis_path_template,names(map_template_vars), map_template_vars_merged,vectorize=F)
+
+expression_data_dir="/Users/ianthevanbelzen/data/rna_expression/gencode31oct2019_multioverlap_largest_overlap/fusion_sq/"
+
+## Read in cohort
+cohort = read.table(patient_table_path,sep = "\t", header=T,stringsAsFactors = F)
+
+## TODO I think that is what was meant...
+cohort$supergroup=cohort$domain
+cohort$supergroup_label=cohort$domain_label
 
 print("Running gene expression zscore analysis")
-print(paste0("Patient count: ",nrow(patient_metadata)))
+print(paste0("Patient count: ",nrow(cohort)))
 
-if(nrow(patient_metadata)<5) {
+if(nrow(cohort)<5) {
   print("Less than 5 patients, probably insufficient data. Please double check your input")
   quit()
 }
 
-gene_expression_analysis_path = paste0(reports_dir,gene_expression_zcore_outfile)
-
-## subset to gene fusions
-cohort_fusion_level_results_path = paste0(reports_dir,cohort_fusion_level_results_outfile)
-
 ##Prevent overwrite
 if(length(Sys.glob(gene_expression_analysis_path))==1){
   #gene_expression_analysis = read.table(gene_expression_analysis_path,sep="\t",header = T)
-  print(paste0("File already exists: ",gene_expression_analysis_path))
+  print(paste0("WARNING: File already exists: ",gene_expression_analysis_path))
   #quit()
 } 
 
 
-## Subset genes 
+## Select genes 
+
+focus_gene_list = c()
 if(length(Sys.glob(cohort_fusion_level_results_path))!=1){
-  print(paste0("Needs cohort fusion-level results: ",cohort_fusion_level_results_path))
+  print(paste0("WARNING: file not found, continuing without cohort fusion-level results: ",cohort_fusion_level_results_path))
   #quit()
-} 
-cohort_fusion_report = read.table(cohort_fusion_level_results_path,sep = "\t", header=T)
+} else {
+  cohort_fusion_report = read.table(cohort_fusion_level_results_path,sep = "\t", header=T)
+  focus_gene_list = c(focus_gene_list,cohort_fusion_report$gup_ensembl_id,cohort_fusion_report$gdw_ensembl_id)
+}
 
-cancer_genes = get_cancer_genes()
+
+cancer_genes = get_cancer_genes(resources_dir)
 cancer_genes = cancer_genes[grepl("ENSG",cancer_genes$gene_id),c("gene_id")]
 cancer_genes = remove_version_from_id(cancer_genes)
 
-focus_gene_list = unique(c(cohort_fusion_report$gup_ensembl_id,cohort_fusion_report$gdw_ensembl_id,cancer_genes))
+focus_gene_list = unique(c(focus_gene_list,cancer_genes))
 focus_gene_list = focus_gene_list[grepl("ENSG",focus_gene_list)]
 
 
 ## Make overview dataframe
 
   summary_gene_expression = data.frame(stringsAsFactors = F)
-  for(id in patient_metadata$patient_identifier) {
-    patient = filter(patient_metadata,patient_identifier==id)
+  for(id in cohort$patient_identifier) {
+    patient = filter(cohort,patient_identifier==id)
     
     gene_expr_filepath = paste0(expression_data_dir,patient$rna_id,expression_gene_file_ext)
     gene_expression_df = read.table(gene_expr_filepath,sep="\t",header = F)
@@ -88,8 +138,8 @@ focus_gene_list = focus_gene_list[grepl("ENSG",focus_gene_list)]
 ## START z score analysis
 
 ##subset to patients, just to be sure, add metadata
-summary_gene_expression = summary_gene_expression %>% filter(patient_id %in% patient_metadata$patient_id)
-summary_gene_expression = summary_gene_expression %>% left_join(patient_metadata[,c("patient_id","supergroup_label","primary_group_shorthand_label")]
+summary_gene_expression = summary_gene_expression %>% filter(patient_id %in% cohort$patient_id)
+summary_gene_expression = summary_gene_expression %>% left_join(cohort[,c("patient_id","supergroup_label","primary_group_shorthand_label")]
                                                                 ,by="patient_id")
 
 summary_gene_expression = summary_gene_expression %>% group_by(ensembl_id) %>% mutate(fpkm_log = log(fpkm+0.001))
